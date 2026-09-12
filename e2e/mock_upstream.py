@@ -292,17 +292,38 @@ class Handler(BaseHTTPRequestHandler):
         elif p.endswith("/wham/usage"):
             acct = self.account() or "acct_personal"
             q = QUOTA.get(acct, QUOTA["acct_personal"])
+            r = RESET.get(acct, RESET["acct_personal"])
             now = int(time.time())
+            # Field names here are NOT the ones the headers or the in-band events use. This
+            # endpoint reports primary_window/secondary_window and states the period as
+            # limit_window_seconds. Confirmed against a live response; an earlier version of
+            # this mock invented "rate_limits"/"window_minutes" and a parser written against
+            # it agreed with the mock and failed against the real endpoint.
             self._json(
                 {
-                    "account_id": acct,
                     "user_id": "user_mock",
-                    "rate_limits": {
-                        "primary": {"used_percent": q["primary"], "window_minutes": 300, "reset_at": now + 3600},
-                        "secondary": {"used_percent": q["secondary"], "window_minutes": 10080, "reset_at": now + 5 * 86400},
+                    "account_id": acct,
+                    "email": "mock@example.com",
+                    "plan_type": "plus",
+                    "rate_limit": {
+                        "allowed": True,
+                        "limit_reached": False,
+                        "primary_window": {
+                            "used_percent": q["primary"],
+                            "limit_window_seconds": 18000,
+                            "reset_after_seconds": r["primary"],
+                            "reset_at": now + r["primary"],
+                        },
+                        "secondary_window": {
+                            "used_percent": q["secondary"],
+                            "limit_window_seconds": 604800,
+                            "reset_after_seconds": r["secondary"],
+                            "reset_at": now + r["secondary"],
+                        },
                     },
-                },
-                extra=rate_limit_headers(acct),
+                    "credits": {"has_credits": False, "unlimited": False, "balance": "0"},
+                    "rate_limit_reached_type": None,
+                }
             )
         elif p.endswith("/codex/responses"):
             if (self.headers.get("upgrade") or "").lower() == "websocket":
