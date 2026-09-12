@@ -1,0 +1,19 @@
+# Build output
+bin/
+web/dist/
+
+# Node
+node_modules/
+
+# Local state, credentials and captured traffic: never publish these.
+*.db
+*.db-shm
+*.db-wal
+*.log
+*.jsonl
+auth.json
+.env
+.env.*
+
+# Scratch
+.agent-work/
