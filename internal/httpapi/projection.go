@@ -18,7 +18,8 @@ import (
 // like a permanent rate, so confidence is reported alongside the number and is never "high".
 // This is a straight line through observed usage, not a model of how anyone works.
 func buildProjections(st *policy.State, now time.Time) []Projection {
-	var out []Projection
+	// Non-nil: a nil slice marshals to JSON null, and the dashboard treats these as arrays.
+	out := []Projection{}
 	for _, id := range st.Order {
 		ws := st.Workspaces[id]
 		if ws == nil {
@@ -116,7 +117,8 @@ func buildPoolTotals(st *policy.State, now time.Time, plans map[string]string) [
 		}
 	}
 
-	var out []PoolTotal
+	// Non-nil for the same reason as above: null here black-screened a fresh install.
+	out := []PoolTotal{}
 	for minutes, a := range byWindow {
 		if a.n == 0 {
 			continue
