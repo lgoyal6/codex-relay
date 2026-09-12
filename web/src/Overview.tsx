@@ -603,6 +603,19 @@ function CostNote({ state }: { state: State }) {
 }
 
 /**
+ * describePlans renders the plan mix as something a person would say.
+ *
+ * plans carries raw API values ("plus", "pro"), so joining them directly produced
+ * "on average across plus", which reads as a missing word rather than a plan name.
+ */
+function describePlans(plans: string[], workspaces: number): string {
+  const count = `${workspaces} workspace${workspaces === 1 ? "" : "s"}`;
+  if (plans.length === 0) return count;
+  const named = plans.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" and ");
+  return `${count} on ${named}`;
+}
+
+/**
  * PoolTotals combines workspaces per window. Expressed as account-equivalents rather than as
  * a credit balance, because adding unlike plans does not produce something you can spend.
  */
@@ -615,22 +628,21 @@ function PoolTotals({ state }: { state: State }) {
           <div className="acct" key={t.window_minutes}>
             <div className="acct-head">
               <div>
-                <div className="acct-name">{t.account_equivalents.toFixed(2)} accounts&rsquo; worth</div>
+                <div className="acct-name">{t.average_remaining_percent.toFixed(0)}% left on average</div>
                 <div className="acct-plan">
-                  {t.window_label} · {t.workspaces} workspace{t.workspaces === 1 ? "" : "s"}
+                  {t.window_label} · {describePlans(t.plans, t.workspaces)}
                 </div>
               </div>
               {t.mixed_plans && <Badge kind="warn">mixed plans</Badge>}
             </div>
             <Meter percent={t.average_remaining_percent} tone={t.average_remaining_percent <= 25 ? "low" : "ok"} />
             <p className="note" style={{ margin: 0 }}>
-              {t.average_remaining_percent.toFixed(0)}% remaining on average across{" "}
-              {t.plans.length > 0 ? t.plans.join(" and ") : "these workspaces"}.
+              Added up, that is {t.account_equivalents.toFixed(2)} accounts&rsquo; worth of quota.
+              You cannot spend it as one pool: a conversation runs on a single workspace, so the
+              workspace with the least left still limits that conversation.
               {t.mixed_plans
                 ? " These are different plans, so this average blends unlike allowances: one account's 50% is not the same amount of work as another's."
-                : ""}{" "}
-              A conversation still runs on one workspace, so no single turn can draw on this
-              combined figure.
+                : ""}
             </p>
           </div>
         ))}
