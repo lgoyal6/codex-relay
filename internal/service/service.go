@@ -31,6 +31,10 @@ type Service struct {
 	Clock    clock.Clock
 	Log      *slog.Logger
 
+	// UpstreamBase is the ChatGPT backend root used by background polling. Empty disables
+	// polling, which is what tests and offline runs want.
+	UpstreamBase string
+
 	// audit serializes best-effort history writes off the turn path. A full queue drops
 	// rows rather than slowing a stream: history is optional, routing is not.
 	audit chan proxy.Record
@@ -141,6 +145,13 @@ func (s *Service) markCredential(ctx context.Context, workspaceID string, ok boo
 // ObserveQuota records rate-limit evidence from a real response and republishes the snapshot
 // so a time or quota change is reflected without waiting for a poll.
 func (s *Service) ObserveQuota(ctx context.Context, workspaceID string, snaps []upstream.Snapshot) {
+	s.observeQuota(ctx, workspaceID, snaps, "response_headers")
+}
+
+// observeQuota is the shared write path. The source is recorded so the dashboard can say
+// whether a reading came from a real turn or from a usage poll, which are not equally
+// authoritative: a turn reports what the request actually cost, a poll reports a total.
+func (s *Service) observeQuota(ctx context.Context, workspaceID string, snaps []upstream.Snapshot, source string) {
 	now := s.Clock.Now()
 	for _, snap := range snaps {
 		for _, w := range []*upstream.Window{snap.Primary, snap.Secondary} {
@@ -153,13 +164,13 @@ func (s *Service) ObserveQuota(ctx context.Context, workspaceID string, snaps []
 			}
 			_, err := s.DB.SQL().ExecContext(ctx, `
 				INSERT INTO quota_windows (workspace_id, limit_id, window_minutes, used_percent, resets_at, observed_at, source)
-				VALUES (?, ?, ?, ?, ?, ?, 'response_headers')
+				VALUES (?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(workspace_id, limit_id, window_minutes) DO UPDATE SET
 					used_percent = excluded.used_percent,
 					resets_at = excluded.resets_at,
 					observed_at = excluded.observed_at,
 					source = excluded.source`,
-				workspaceID, snap.LimitID, w.Minutes, w.UsedPercent, resets, now.Format(time.RFC3339Nano))
+				workspaceID, snap.LimitID, w.Minutes, w.UsedPercent, resets, now.Format(time.RFC3339Nano), source)
 			if err != nil {
 				s.Log.Warn("could not store quota reading", "error", err)
 			}

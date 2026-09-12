@@ -115,6 +115,7 @@ func boot(logLevel slog.Level) (*app, error) {
 	reg := routing.NewRegistry(clk)
 	creds := service.NewCredentialManager(sec, clk, "")
 	svc := service.New(db, reg, creds, sec, clk, log)
+	svc.UpstreamBase = upstreamBase()
 	svc.Start()
 	if err := svc.Refresh(context.Background()); err != nil {
 		return nil, err
@@ -146,6 +147,12 @@ func cmdServe(args []string) error {
 		return err
 	}
 	defer a.close()
+
+	// Quota is otherwise only learned from turns this process forwards, so an idle or paused
+	// workspace would keep a reading from whenever it last served one.
+	pollCtx, stopPolling := context.WithCancel(context.Background())
+	defer stopPolling()
+	a.svc.StartUsagePolling(pollCtx)
 
 	host, port, err := net.SplitHostPort(*addr)
 	if err != nil {
