@@ -1,0 +1,147 @@
+package store
+
+// migrations are applied in order and recorded in schema_migrations. Each entry is
+// immutable once shipped; changes go in a new migration.
+//
+// The split that matters here: ownership and configuration are required, transactional
+// state. Activity history is bounded, best-effort audit. They are separate tables with
+// separate write paths so an audit write can never block or fail a routed turn.
+var migrations = []string{
+	`CREATE TABLE schema_migrations (
+		version INTEGER PRIMARY KEY,
+		applied_at TEXT NOT NULL
+	);`,
+
+	`CREATE TABLE accounts (
+		id TEXT PRIMARY KEY,
+		chatgpt_user_id TEXT NOT NULL,
+		email TEXT,
+		plan_type TEXT,
+		created_at TEXT NOT NULL,
+		UNIQUE (chatgpt_user_id)
+	);`,
+
+	// A workspace is distinct from its account, and neither is keyed by email.
+	`CREATE TABLE workspaces (
+		id TEXT PRIMARY KEY,
+		account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+		chatgpt_account_id TEXT NOT NULL,
+		display_name TEXT NOT NULL,
+		upstream_name TEXT,
+		structure TEXT NOT NULL DEFAULT '',
+		paused INTEGER NOT NULL DEFAULT 0,
+		credential_ref TEXT NOT NULL,
+		credential_ok INTEGER NOT NULL DEFAULT 0,
+		credential_note TEXT NOT NULL DEFAULT '',
+		sort_order INTEGER NOT NULL DEFAULT 0,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL,
+		UNIQUE (account_id, chatgpt_account_id)
+	);`,
+
+	`CREATE TABLE quota_windows (
+		workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+		limit_id TEXT NOT NULL DEFAULT 'codex',
+		window_minutes INTEGER NOT NULL,
+		used_percent REAL NOT NULL,
+		resets_at INTEGER,
+		observed_at TEXT NOT NULL,
+		source TEXT NOT NULL,
+		PRIMARY KEY (workspace_id, limit_id, window_minutes)
+	);`,
+
+	`CREATE TABLE model_eligibility (
+		workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+		model_slug TEXT NOT NULL,
+		observed_at TEXT NOT NULL,
+		PRIMARY KEY (workspace_id, model_slug)
+	);`,
+
+	`CREATE TABLE rules (
+		id TEXT PRIMARY KEY,
+		kind TEXT NOT NULL,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		priority INTEGER NOT NULL DEFAULT 100,
+		source_workspace_id TEXT NOT NULL,
+		window_minutes INTEGER NOT NULL DEFAULT 0,
+		comparison TEXT NOT NULL DEFAULT '',
+		remaining_percent REAL NOT NULL DEFAULT 0,
+		reset_comparison TEXT NOT NULL DEFAULT '',
+		reset_hours REAL NOT NULL DEFAULT 0,
+		preferred_workspace_id TEXT NOT NULL DEFAULT '',
+		no_alternative TEXT NOT NULL DEFAULT 'stop_and_explain',
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	);`,
+
+	// Required, transactional. A conversation's owning workspace is written before any
+	// account-bound state is exposed, and is never rewritten silently.
+	`CREATE TABLE thread_ownership (
+		thread_id TEXT PRIMARY KEY,
+		workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
+		first_seen_at TEXT NOT NULL,
+		last_seen_at TEXT NOT NULL,
+		released_at TEXT,
+		release_reason TEXT NOT NULL DEFAULT ''
+	);`,
+
+	// Account-bound resources observed inside a thread (response ids, file ids, ...).
+	// Separate from thread ownership because the scopes differ.
+	`CREATE TABLE resource_ownership (
+		kind TEXT NOT NULL,
+		resource_id TEXT NOT NULL,
+		workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
+		thread_id TEXT,
+		created_at TEXT NOT NULL,
+		PRIMARY KEY (kind, resource_id)
+	);`,
+
+	// Bounded, best-effort audit. Never holds request bodies or credentials.
+	`CREATE TABLE decisions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		at TEXT NOT NULL,
+		thread_id TEXT,
+		model TEXT,
+		outcome TEXT NOT NULL,
+		workspace_id TEXT,
+		primary_reason TEXT NOT NULL,
+		summary TEXT NOT NULL,
+		detail_json TEXT NOT NULL,
+		state_version INTEGER NOT NULL,
+		attempt INTEGER NOT NULL DEFAULT 1,
+		status_code INTEGER,
+		first_token_ms INTEGER,
+		total_ms INTEGER,
+		error_class TEXT
+	);`,
+	`CREATE INDEX idx_decisions_at ON decisions(at DESC);`,
+
+	`CREATE TABLE settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	);`,
+
+	// Every change we make to the user's Codex config, so rollback restores only our edits
+	// and can detect later third-party edits instead of overwriting them.
+	`CREATE TABLE integration_changes (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		at TEXT NOT NULL,
+		target_path TEXT NOT NULL,
+		backup_path TEXT NOT NULL,
+		before_sha256 TEXT NOT NULL,
+		after_sha256 TEXT NOT NULL,
+		description TEXT NOT NULL,
+		rolled_back_at TEXT
+	);`,
+
+	// APPEND ONLY. Migrations are identified by their position in this slice, so inserting
+	// one in the middle renumbers every migration after it and a database that has already
+	// applied them will try to re-run the wrong statements. That happened once: these four
+	// were added mid-list and an existing install failed with
+	// "migration 16: table integration_changes already exists".
+	`ALTER TABLE decisions ADD COLUMN input_tokens INTEGER;`,
+	`ALTER TABLE decisions ADD COLUMN cached_input_tokens INTEGER;`,
+	`ALTER TABLE decisions ADD COLUMN output_tokens INTEGER;`,
+	`ALTER TABLE decisions ADD COLUMN total_tokens INTEGER;`,
+}
