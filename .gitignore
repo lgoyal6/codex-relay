@@ -1,6 +1,7 @@
 # Build output
 bin/
 web/dist/
+/dist/
 
 # Node
 node_modules/
