@@ -1,0 +1,287 @@
+package proxy
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/lgoyal6/codex-relay/internal/policy"
+	"github.com/lgoyal6/codex-relay/internal/upstream"
+)
+
+// maxBufferedBody bounds how much of a request we hold in memory to read its identity
+// headers and model. Codex request bodies are large (64 KB was typical in the live capture)
+// but bounded; anything beyond this is streamed straight through without inspection.
+const maxBufferedBody = 8 << 20 // 8 MiB
+
+// serveGeneration admits one model turn.
+//
+// Order matters and is load-bearing:
+//  1. read conversation identity from headers (thread-id), never from the body
+//  2. consult existing ownership
+//  3. evaluate policy with that ownership
+//  4. persist ownership BEFORE any account-bound state reaches the client
+//  5. forward with the selected identity, streaming without buffering the response
+func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
+	started := p.opt.Clock.Now()
+	threadID := conversationID(r)
+	model := modelFromBody(r)
+
+	owner, _, err := p.opt.Selector.OwnerOf(r.Context(), threadID)
+	if err != nil {
+		p.opt.Logger.Warn("ownership lookup failed", "error", err)
+	}
+
+	d := p.opt.Selector.Decide(r.Context(), policy.Request{
+		Model:            model,
+		OwnerWorkspaceID: owner,
+		ThreadID:         threadID,
+	})
+
+	if d.Outcome != policy.OutcomeSelected {
+		// Nothing is spent and the client is told why, in its own error channel.
+		p.opt.Selector.RecordDecision(Record{
+			At: started, ThreadID: threadID, Model: model, Decision: d,
+			Attempt: 1, StatusCode: http.StatusServiceUnavailable, ErrorClass: "blocked_by_policy",
+			TotalMS: p.opt.Clock.Now().Sub(started).Milliseconds(),
+		})
+		writeProblem(w, http.StatusServiceUnavailable, d.Summary)
+		return
+	}
+
+	// Persist ownership before exposing account-bound state. If this fails we do not
+	// proceed: an unrecorded binding is how conversations end up split across accounts.
+	if threadID != "" {
+		if err := p.opt.Selector.Claim(r.Context(), threadID, d.WorkspaceID); err != nil {
+			p.opt.Selector.RecordDecision(Record{
+				At: started, ThreadID: threadID, Model: model, Decision: d,
+				Attempt: 1, StatusCode: http.StatusConflict, ErrorClass: "ownership_conflict",
+				TotalMS: p.opt.Clock.Now().Sub(started).Milliseconds(),
+			})
+			writeProblem(w, http.StatusConflict, fmt.Sprintf(
+				"This conversation is already bound to a different workspace. %v. Start a new conversation to use a different workspace.", err))
+			return
+		}
+	}
+
+	id, err := p.opt.Selector.Identity(r.Context(), d.WorkspaceID)
+	if err != nil {
+		p.opt.Selector.RecordDecision(Record{
+			At: started, ThreadID: threadID, Model: model, Decision: d,
+			Attempt: 1, StatusCode: http.StatusBadGateway, ErrorClass: "credential_unavailable",
+			TotalMS: p.opt.Clock.Now().Sub(started).Milliseconds(),
+		})
+		writeProblem(w, http.StatusBadGateway, fmt.Sprintf("could not use the selected workspace: %v", err))
+		return
+	}
+
+	req, err := p.buildUpstream(r, &id)
+	if err != nil {
+		writeProblem(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	// The request context is the client's. When Codex cancels a turn, the context is
+	// cancelled, the upstream request is torn down, and we stop. We never retry a turn
+	// after output has begun: replay safety has not been demonstrated for this protocol,
+	// so a mid-stream failure is surfaced rather than silently re-sent.
+	resp, err := p.opt.HTTPClient.Do(req)
+	if err != nil {
+		cls := "transport"
+		if r.Context().Err() != nil {
+			cls = "client_cancelled"
+		}
+		p.opt.Selector.RecordDecision(Record{
+			At: started, ThreadID: threadID, Model: model, Decision: d,
+			Attempt: 1, ErrorClass: cls,
+			TotalMS: p.opt.Clock.Now().Sub(started).Milliseconds(),
+		})
+		writeUpstreamError(w, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if snaps := upstream.ParseRateLimits(resp.Header); len(snaps) > 0 {
+		p.opt.Selector.ObserveQuota(r.Context(), id.WorkspaceID, snaps)
+	}
+
+	copyHeaders(w.Header(), resp.Header)
+	w.Header().Set("X-Codex-Pool-Workspace", id.WorkspaceID)
+	w.Header().Set("X-Codex-Pool-Reason", string(d.Primary))
+	w.WriteHeader(resp.StatusCode)
+
+	// The SSE path carries quota in-band too, for the same reason the WebSocket path does:
+	// the real backend does not put rate-limit headers on a streamed generation response.
+	var inStreamClass string
+	var usage *upstream.TokenUsage
+	onFrame := func(frame []byte) {
+		if u, ok := upstream.MaybeTokenUsage(frame); ok {
+			usage = &u
+		}
+		if snap, ok := upstream.MaybeRateLimitEvent(frame); ok {
+			p.opt.Selector.ObserveQuota(context.WithoutCancel(r.Context()), id.WorkspaceID,
+				[]upstream.Snapshot{snap})
+		}
+		if f, ok := upstream.MaybeStreamError(frame); ok && inStreamClass == "" {
+			inStreamClass = f.Class
+		}
+	}
+
+	firstToken, total, streamClass := p.stream(r, w, resp.Body, started, onFrame)
+
+	// How a stream ENDED is its own failure class. A turn the user cancelled and a turn
+	// that completed both leave a 200 behind, and telling them apart afterwards is the
+	// whole point of classifying cancellation separately from a transient failure.
+	class := streamClass
+	if class == "" {
+		class = inStreamClass
+	}
+	if class == "" {
+		class = errorClassFor(resp.StatusCode)
+	}
+
+	p.opt.Selector.RecordDecision(Record{
+		At: started, ThreadID: threadID, Model: model, Decision: d,
+		Attempt: 1, StatusCode: resp.StatusCode,
+		FirstTokenMS: firstToken, TotalMS: total, Usage: usage,
+		ErrorClass: class,
+	})
+}
+
+// stream copies the upstream body to the client, flushing as it goes so streamed output is
+// not held back. It reports first-token and total timings and how the stream ended.
+//
+// Nothing on this path writes to the database or waits on the dashboard.
+func (p *Proxy) stream(r *http.Request, w http.ResponseWriter, body io.Reader, started time.Time, onFrame func([]byte)) (firstTokenMS, totalMS int64, endedBy string) {
+	flusher, _ := w.(http.Flusher)
+	buf := make([]byte, 32*1024)
+	// line accumulates the current SSE line so an event split across two reads is still
+	// seen whole. It is bounded: a line longer than this cannot be a quota event, and the
+	// cap applies only to the SCAN, never to the bytes forwarded to the client.
+	const maxLine = 256 << 10
+	var line []byte
+	var first time.Time
+
+	for {
+		n, err := body.Read(buf)
+		if n > 0 {
+			if first.IsZero() {
+				first = p.opt.Clock.Now()
+			}
+			chunk := buf[:n]
+			// Forward FIRST. Inspection must never delay the client's bytes.
+			if _, werr := w.Write(chunk); werr != nil {
+				endedBy = "client_cancelled"
+				break
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+			if onFrame != nil {
+				for _, b := range chunk {
+					if b == '\n' {
+						if len(line) > 0 {
+							onFrame(line)
+							line = line[:0]
+						}
+						continue
+					}
+					if len(line) < maxLine {
+						line = append(line, b)
+					}
+				}
+			}
+		}
+		if err != nil {
+			if err != io.EOF {
+				if r.Context().Err() != nil {
+					endedBy = "client_cancelled"
+				} else {
+					endedBy = "upstream_stream_interrupted"
+				}
+			}
+			break
+		}
+	}
+	if onFrame != nil && len(line) > 0 {
+		onFrame(line)
+	}
+	// Deliberately NOT: "if the request context is now cancelled, call it cancelled".
+	// A client that reads the whole stream and then closes promptly cancels the request
+	// context as a matter of course, so that check labelled ordinary completed turns as
+	// cancelled in Activity. Cancellation is only inferred from an actual mid-stream read
+	// or write failure, above.
+
+	now := p.opt.Clock.Now()
+	// -1 means "no byte ever arrived", which is different from a first token that genuinely
+	// landed in under a millisecond. Collapsing both to 0 made a real measurement look like
+	// a missing one, and Activity then had no timed row at all on a fast local upstream.
+	firstTokenMS = -1
+	if !first.IsZero() {
+		firstTokenMS = first.Sub(started).Milliseconds()
+	}
+	return firstTokenMS, now.Sub(started).Milliseconds(), endedBy
+}
+
+// conversationID reads the stable conversation identity.
+//
+// Captured live from codex-cli 0.154.0: the client sends `thread-id` and `session-id`
+// headers plus an `x-codex-turn-metadata` JSON blob. thread-id is the conversation; session
+// and turn ids have narrower scopes and must not be used as the ownership key.
+func conversationID(r *http.Request) string {
+	if v := strings.TrimSpace(r.Header.Get("thread-id")); v != "" {
+		return v
+	}
+	if raw := r.Header.Get("x-codex-turn-metadata"); raw != "" {
+		var meta struct {
+			ThreadID string `json:"thread_id"`
+		}
+		if err := json.Unmarshal([]byte(raw), &meta); err == nil && meta.ThreadID != "" {
+			return meta.ThreadID
+		}
+	}
+	// session-id is a last resort; it is a wider scope than a thread but still per-client.
+	return strings.TrimSpace(r.Header.Get("session-id"))
+}
+
+// modelFromBody reads the requested model so eligibility can be checked. The body is
+// restored afterwards so forwarding is unaffected.
+func modelFromBody(r *http.Request) string {
+	if r.Body == nil || r.ContentLength > maxBufferedBody {
+		return ""
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxBufferedBody))
+	if err != nil {
+		return ""
+	}
+	_ = r.Body.Close()
+	r.Body = io.NopCloser(bytes.NewReader(raw))
+	r.ContentLength = int64(len(raw))
+
+	var body struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return ""
+	}
+	return body.Model
+}
+
+func errorClassFor(status int) string {
+	switch {
+	case status == 401 || status == 403:
+		return "credential"
+	case status == 429:
+		return "quota"
+	case status >= 500:
+		return "upstream"
+	case status >= 400:
+		return "request"
+	}
+	return ""
+}
