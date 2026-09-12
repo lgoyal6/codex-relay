@@ -81,6 +81,13 @@ func (s *State) EvidenceFor(ws *WorkspaceState, minutes int64, now time.Time) (W
 	if !ok {
 		return Window{}, EvidenceMissing
 	}
+	// A reading describes one specific window. Once that window's reset time has passed the
+	// window no longer exists, and the percentage in hand says nothing about the new one, no
+	// matter how recently it was observed. Age alone would call a two-minute-old reading
+	// fresh at 95% used one minute after the counter reset to zero.
+	if w.ResetsAt != nil && !now.Before(*w.ResetsAt) {
+		return Window{}, EvidenceMissing
+	}
 	if s.StaleAfter > 0 && now.Sub(w.ObservedAt) > s.StaleAfter {
 		return w, EvidenceStale
 	}
