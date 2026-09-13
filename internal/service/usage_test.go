@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/lgoyal6/codex-relay/internal/secrets"
+	"github.com/lgoyal6/codex-relay/internal/upstream"
 )
 
 // A paused workspace must still be polled. Pausing means "do not route here", and a paused
@@ -122,5 +123,50 @@ func mustExec(t *testing.T, svc *Service, q string) {
 	t.Helper()
 	if _, err := svc.DB.SQL().Exec(q); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Plan-specific limit families must not produce two rows for one window.
+//
+// A prolite account reports its family as "codex_bengalfox" in response headers, while the
+// usage endpoint calls the same limit "codex". The DB keys on (workspace, limit_id, minutes)
+// but the evaluator keys on minutes alone, so both rows survived and which one the evaluator
+// saw depended on row order. Observed live on a real account.
+func TestOneRowPerWindowAcrossLimitFamilies(t *testing.T) {
+	sec := secrets.NewMemory()
+	svc := connectService(t, sec)
+	ctx := context.Background()
+	mustExec(t, svc, `INSERT INTO accounts (id, chatgpt_user_id, email, plan_type, created_at)
+		VALUES ('a','u','a@example.com','prolite','2026-09-12T00:00:00Z')`)
+	mustExec(t, svc, `INSERT INTO workspaces (id, account_id, chatgpt_account_id, display_name, paused, credential_ref, credential_ok, sort_order, created_at, updated_at)
+		VALUES ('ws','a','cg','WS',0,'r',1,0,'2026-09-12T00:00:00Z','2026-09-12T00:00:00Z')`)
+
+	win := func(pct float64) *upstream.Window {
+		return &upstream.Window{Minutes: 300, UsedPercent: pct}
+	}
+	// Headers first, under the plan's own family name.
+	svc.observeQuota(ctx, "ws", []upstream.Snapshot{{LimitID: "codex_bengalfox", Primary: win(10)}}, "response_headers")
+	// Then the usage endpoint, which calls the same limit something else.
+	svc.observeQuota(ctx, "ws", []upstream.Snapshot{{LimitID: "codex", Primary: win(42)}}, "usage_endpoint")
+
+	rows, err := svc.DB.SQL().QueryContext(ctx,
+		`SELECT limit_id, used_percent FROM quota_windows WHERE workspace_id='ws' AND window_minutes=300`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	var pct float64
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id, &pct); err == nil {
+			got = append(got, id)
+		}
+	}
+	if len(got) != 1 {
+		t.Fatalf("the 5-hour window has %d rows (%v), want exactly 1", len(got), got)
+	}
+	if pct != 42 {
+		t.Errorf("used_percent = %v, want the newest reading 42", pct)
 	}
 }

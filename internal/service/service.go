@@ -176,6 +176,19 @@ func (s *Service) observeQuota(ctx context.Context, workspaceID string, snaps []
 			if w.ResetsAt != nil {
 				resets = w.ResetsAt.Unix()
 			}
+			// One row per window, whatever the limit family is called.
+			//
+			// The family name is plan-specific: a prolite account reports "codex_bengalfox"
+			// in its response headers where the usage endpoint says "codex". The DB keys on
+			// (workspace, limit_id, minutes) but the evaluator keys on minutes alone, so two
+			// names for one real limit became two rows that collapsed unpredictably into one
+			// reading. The name is informational; the duration is the identity.
+			if _, err := s.DB.SQL().ExecContext(ctx, `
+				DELETE FROM quota_windows
+				WHERE workspace_id = ? AND window_minutes = ? AND limit_id <> ?`,
+				workspaceID, w.Minutes, snap.LimitID); err != nil {
+				s.Log.Warn("could not clear superseded quota rows", "error", err)
+			}
 			_, err := s.DB.SQL().ExecContext(ctx, `
 				INSERT INTO quota_windows (workspace_id, limit_id, window_minutes, used_percent, resets_at, observed_at, source)
 				VALUES (?, ?, ?, ?, ?, ?, ?)
