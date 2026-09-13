@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/zalando/go-keyring"
@@ -247,23 +248,40 @@ func remedy() string {
 }
 
 // Memory is an in-process store used by tests only. It is never selected at runtime.
-type Memory struct{ m map[string]Credential }
+//
+// It is mutex-guarded because it stands in for the platform store in tests, and the code
+// under test refreshes credentials from several goroutines at once. An unguarded map here
+// does not describe a production defect, but it reports a race of its own and drowns out the
+// one the test is actually looking for.
+type Memory struct {
+	mu sync.Mutex
+	m  map[string]Credential
+}
 
 func NewMemory() *Memory { return &Memory{m: map[string]Credential{}} }
 
 func (s *Memory) Kind() string { return "in-memory (test only)" }
 func (s *Memory) Set(ref string, c Credential) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.m[ref] = c
 	return nil
 }
 func (s *Memory) Get(ref string) (Credential, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	c, ok := s.m[ref]
 	if !ok {
 		return Credential{}, ErrNotFound
 	}
 	return c, nil
 }
-func (s *Memory) Delete(ref string) error { delete(s.m, ref); return nil }
+func (s *Memory) Delete(ref string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.m, ref)
+	return nil
+}
 func (s *Memory) Probe() Health {
 	return Health{OK: true, Kind: s.Kind(), Detail: "in-memory store, for tests"}
 }
