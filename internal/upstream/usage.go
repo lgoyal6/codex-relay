@@ -66,11 +66,18 @@ type usageWindow struct {
 // A window with no period is not a window: recording it would create a row that the
 // evaluator cannot match to any rule, and that the dashboard would render as a nameless bar.
 func (u *usageWindow) window(now time.Time) *Window {
-	if u == nil || u.WindowSeconds <= 0 {
+	if u == nil {
+		return nil
+	}
+	// Guard the COMPUTED minutes, not the seconds. Any period from 1 to 59 seconds is
+	// positive but floors to a zero-minute window, and minutes is the key the evaluator and
+	// the store both use to identify a window. Found by fuzzing, with limit_window_seconds=1.
+	minutes := u.WindowSeconds / 60
+	if minutes <= 0 {
 		return nil
 	}
 	w := &Window{
-		Minutes:     u.WindowSeconds / 60,
+		Minutes:     minutes,
 		UsedPercent: u.UsedPercent,
 	}
 	// reset_at is absolute; reset_after_seconds is relative. Prefer the absolute value and

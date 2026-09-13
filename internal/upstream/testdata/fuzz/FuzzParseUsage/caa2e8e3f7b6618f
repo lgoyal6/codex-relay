@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"rAte_limit\":{\"primArY_window\":{\"limit_window_seConds\":1}}}")

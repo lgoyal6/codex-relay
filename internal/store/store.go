@@ -102,3 +102,15 @@ func (d *DB) SchemaVersion(ctx context.Context) (int, error) {
 	}
 	return int(v.Int64), nil
 }
+
+// openRaw opens the database without running migrations, so a test can stand up an install
+// frozen at an older version.
+func openRaw(path string) (*sql.DB, error) {
+	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)", path)
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	return db, db.Ping()
+}

@@ -354,6 +354,14 @@ func MaybeTokenUsage(frame []byte) (TokenUsage, bool) {
 	if u.OutputTokensDetails != nil {
 		out.ReasoningTokens = u.OutputTokensDetails.ReasoningTokens
 	}
+	// A negative count is not a measurement. These values are written into the history and
+	// multiplied by a price, so one bad frame would show a negative spend and drag a running
+	// total down. Reject the reading rather than clamping it: a clamped zero is
+	// indistinguishable from a real zero, and this codebase keeps those distinct.
+	if out.InputTokens < 0 || out.CachedInputTokens < 0 || out.OutputTokens < 0 ||
+		out.ReasoningTokens < 0 || out.TotalTokens < 0 {
+		return TokenUsage{}, false
+	}
 	if out.TotalTokens == 0 {
 		out.TotalTokens = out.InputTokens + out.OutputTokens
 	}
