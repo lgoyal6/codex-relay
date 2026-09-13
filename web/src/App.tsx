@@ -273,7 +273,7 @@ export function App() {
         {tab === "rules" && <Rules state={state} reload={reload} draft={draft} setDraft={setDraft} />}
         {tab === "activity" && <Activity state={state} activity={activity} loading={loadingActivity} />}
         {tab === "settings" && <Settings state={state} theme={theme} setTheme={setTheme} />}
-        {tab === "advanced" && <Advanced />}
+        {tab === "advanced" && <Advanced state={state} />}
       </main>
     </div>
   );

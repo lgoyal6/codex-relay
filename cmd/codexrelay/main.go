@@ -153,6 +153,9 @@ func cmdServe(args []string) error {
 	pollCtx, stopPolling := context.WithCancel(context.Background())
 	defer stopPolling()
 	a.svc.StartUsagePolling(pollCtx)
+	// Schedules are evaluated on the same lifetime as polling: both are background work that
+	// belongs only to a long-running serve.
+	a.svc.StartAutomations(pollCtx)
 
 	host, port, err := net.SplitHostPort(*addr)
 	if err != nil {
@@ -173,10 +176,11 @@ func cmdServe(args []string) error {
 	}
 
 	p := proxy.New(proxy.Options{
-		UpstreamBase: upstreamBase(),
-		Selector:     a.svc,
-		Clock:        a.svc.Clock,
-		Logger:       a.svc.Log,
+		UpstreamBase:  upstreamBase(),
+		UpstreamProxy: a.svc.UpstreamProxyFor,
+		Selector:      a.svc,
+		Clock:         a.svc.Clock,
+		Logger:        a.svc.Log,
 	})
 
 	mux := http.NewServeMux()

@@ -38,6 +38,8 @@ type Service struct {
 
 	// audit serializes best-effort history writes off the turn path. A full queue drops
 	// rows rather than slowing a stream: history is optional, routing is not.
+	proxyCache proxyCache
+
 	audit     chan proxy.Record
 	once      sync.Once
 	closeOnce sync.Once
@@ -320,6 +322,24 @@ func (s *Service) writeDecision(rec proxy.Record) error {
 	if err != nil {
 		return err
 	}
+	// Fold into the hourly rollup BEFORE pruning. The raw row below is about to become
+	// eligible for deletion, and the aggregate is the only thing that will outlive it.
+	delta := store.RollupDelta{
+		At:          rec.At,
+		WorkspaceID: rec.Decision.WorkspaceID,
+		APIKeyID:    rec.APIKeyID,
+		Served:      rec.Decision.Outcome == policy.OutcomeSelected,
+		Blocked:     rec.Decision.Outcome == policy.OutcomeBlocked,
+		Errored:     rec.ErrorClass != "" && rec.ErrorClass != "client_cancelled",
+	}
+	if u := rec.Usage; u != nil {
+		delta.InputTokens, delta.CachedTokens = u.InputTokens, u.CachedInputTokens
+		delta.OutputTokens, delta.TotalTokens = u.OutputTokens, u.TotalTokens
+	}
+	if err := s.DB.AddRollup(context.Background(), delta); err != nil {
+		s.Log.Warn("could not fold a turn into the usage rollup", "error", err)
+	}
+
 	_, err = s.DB.SQL().Exec(
 		`DELETE FROM decisions WHERE id NOT IN (SELECT id FROM decisions ORDER BY id DESC LIMIT ?)`, historyLimit)
 	return err

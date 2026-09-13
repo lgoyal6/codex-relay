@@ -268,7 +268,17 @@ func (s *Service) Activity(ctx context.Context, limit int) ([]ActivityRow, error
 			Candidates []policy.Candidate `json:"candidates"`
 		}
 		_ = json.Unmarshal([]byte(detail), &d)
+		// Never nil. A nil slice marshals to JSON null and the dashboard maps over both of
+		// these, so one row with no decision attached (an authentication refusal, for
+		// instance) would black-screen the whole page. This is the class of the bug, not
+		// just the instance: every list the dashboard iterates is guaranteed here.
 		r.Notes, r.Candidates = d.Notes, d.Candidates
+		if r.Notes == nil {
+			r.Notes = []policy.Note{}
+		}
+		if r.Candidates == nil {
+			r.Candidates = []policy.Candidate{}
+		}
 		out = append(out, r)
 	}
 	return out, rows.Err()

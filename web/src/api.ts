@@ -255,6 +255,32 @@ export type ApiKey = {
   daily_limit: number | null;
 };
 
+export type Automation = {
+  id: string;
+  name: string;
+  kind: string;
+  workspace_id: string;
+  at_minute: number | null;
+  enabled: boolean;
+  last_run_at: string | null;
+  last_result?: string;
+  created_at: string;
+};
+
+/** RollupBucket is one UTC hour of usage. These outlive pruned decision rows. */
+export type RollupBucket = {
+  hour: string;
+  workspace_id?: string;
+  api_key_id?: string;
+  turns: number;
+  blocked: number;
+  errors: number;
+  input_tokens: number;
+  cached_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+};
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -354,6 +380,30 @@ export const api = {
     call<{ require_key: boolean }>("/api/settings/require-key", {
       method: "POST",
       body: JSON.stringify({ require }),
+    }),
+
+  listAutomations: () => call<{ automations: Automation[] }>("/api/automations"),
+  createAutomation: (name: string, kind: string, workspaceID: string, atMinute: number | null) =>
+    call<{ automation: Automation }>("/api/automations", {
+      method: "POST",
+      body: JSON.stringify({ name, kind, workspace_id: workspaceID, at_minute: atMinute }),
+    }),
+  deleteAutomation: (id: string) =>
+    call<{ deleted: boolean }>(`/api/automations/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  enableAutomation: (id: string, enabled: boolean) =>
+    call<{ enabled: boolean }>(`/api/automations/${encodeURIComponent(id)}/enabled`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    }),
+
+  rollups: (days: number) =>
+    call<{ days: number; buckets: RollupBucket[] }>(`/api/rollups?days=${days}`),
+
+  network: () => call<{ upstream_base: string; upstream_proxy: string }>("/api/network"),
+  setProxy: (proxy: string) =>
+    call<{ upstream_proxy: string }>("/api/network/proxy", {
+      method: "POST",
+      body: JSON.stringify({ proxy }),
     }),
 
   setDefaultWorkspace: (id: string) =>

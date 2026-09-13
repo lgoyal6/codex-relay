@@ -191,3 +191,18 @@ export const IconPin = (p: P) => (
     <circle cx="12" cy="10" r="2.4" />
   </Svg>
 );
+
+export const IconChart = (p: P) => (
+  <Svg {...p}>
+    <path d="M3 3v18h18" />
+    <path d="M7 15l4-5 3 3 5-7" />
+  </Svg>
+);
+
+export const IconGlobe = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M3 12h18" />
+    <path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18" />
+  </Svg>
+);

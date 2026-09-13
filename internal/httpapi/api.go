@@ -59,6 +59,15 @@ func (a *API) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/keys", a.handleCreateKey)
 	mux.HandleFunc("DELETE /api/keys/{id}", a.handleRevokeKey)
 	mux.HandleFunc("POST /api/settings/require-key", a.handleRequireKey)
+
+	mux.HandleFunc("GET /api/automations", a.handleListAutomations)
+	mux.HandleFunc("POST /api/automations", a.handleCreateAutomation)
+	mux.HandleFunc("DELETE /api/automations/{id}", a.handleDeleteAutomation)
+	mux.HandleFunc("POST /api/automations/{id}/enabled", a.handleEnableAutomation)
+
+	mux.HandleFunc("GET /api/rollups", a.handleRollups)
+	mux.HandleFunc("GET /api/network", a.handleNetwork)
+	mux.HandleFunc("POST /api/network/proxy", a.handleSetProxy)
 	return mux
 }
 

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -100,6 +101,12 @@ type Options struct {
 	Selector     Selector
 	Clock        clock.Clock
 	Logger       *slog.Logger
+	// UpstreamProxy resolves the outbound proxy for a request, or nil for a direct
+	// connection. It is consulted per request rather than baked into the transport, so
+	// changing it in the dashboard takes effect without a restart and without dropping the
+	// connections a streaming turn is using.
+	UpstreamProxy func(*http.Request) (*url.URL, error)
+
 	// HTTPClient is used for non-streaming and streaming forwards alike. Its timeout must
 	// be zero: a long turn is not a hung request.
 	HTTPClient *http.Client
@@ -116,7 +123,16 @@ func New(opt Options) *Proxy {
 			// No client timeout: a streamed turn can legitimately run for many minutes.
 			// Idle and connection timeouts live in the transport instead.
 			Transport: &http.Transport{
-				Proxy:                 http.ProxyFromEnvironment,
+				Proxy: func(r *http.Request) (*url.URL, error) {
+					if opt.UpstreamProxy != nil {
+						if u, err := opt.UpstreamProxy(r); err != nil || u != nil {
+							return u, err
+						}
+					}
+					// Falling back to the environment keeps a machine that already works
+					// behind a corporate proxy working with no configuration at all.
+					return http.ProxyFromEnvironment(r)
+				},
 				DialContext:           (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
 				TLSHandshakeTimeout:   15 * time.Second,
 				ResponseHeaderTimeout: 120 * time.Second,

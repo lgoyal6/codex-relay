@@ -168,4 +168,40 @@ var migrations = []string{
 	);`,
 	`CREATE INDEX idx_api_keys_hash ON api_keys(key_hash);`,
 	`ALTER TABLE decisions ADD COLUMN api_key_id TEXT;`,
+
+	// Hourly rollups exist because the decisions table is capped and pruned: past the cap,
+	// every older turn is deleted and with it any record of what was spent. These are
+	// aggregates only, they are never pruned, and they are what makes long-term cost and
+	// usage answerable at all.
+	`CREATE TABLE usage_rollups (
+		hour_utc      TEXT NOT NULL,
+		workspace_id  TEXT NOT NULL DEFAULT '',
+		api_key_id    TEXT NOT NULL DEFAULT '',
+		turns         INTEGER NOT NULL DEFAULT 0,
+		blocked       INTEGER NOT NULL DEFAULT 0,
+		errors        INTEGER NOT NULL DEFAULT 0,
+		input_tokens  INTEGER NOT NULL DEFAULT 0,
+		cached_tokens INTEGER NOT NULL DEFAULT 0,
+		output_tokens INTEGER NOT NULL DEFAULT 0,
+		total_tokens  INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (hour_utc, workspace_id, api_key_id)
+	);`,
+	`CREATE INDEX idx_usage_rollups_hour ON usage_rollups(hour_utc);`,
+
+	// Automations are scheduled changes to workspace availability. Deliberately narrow: the
+	// two things a person actually wants on a timer are "stop using this account" and "start
+	// again", including "start again once its window resets", which otherwise means watching
+	// the dashboard for a reset that happens at an inconvenient hour.
+	`CREATE TABLE automations (
+		id            TEXT PRIMARY KEY,
+		name          TEXT NOT NULL,
+		kind          TEXT NOT NULL,
+		workspace_id  TEXT NOT NULL,
+		at_minute     INTEGER,
+		enabled       INTEGER NOT NULL DEFAULT 1,
+		last_run_at   TEXT,
+		last_result   TEXT,
+		created_at    TEXT NOT NULL,
+		FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+	);`,
 }

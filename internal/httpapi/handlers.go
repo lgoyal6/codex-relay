@@ -404,3 +404,92 @@ func (a *API) handleRequireKey(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"require_key": body.Require})
 }
+
+func (a *API) handleListAutomations(w http.ResponseWriter, r *http.Request) {
+	list, err := a.Svc.ListAutomations(r.Context())
+	if err != nil {
+		writeErr(w, 500, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"automations": list})
+}
+
+func (a *API) handleCreateAutomation(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name        string `json:"name"`
+		Kind        string `json:"kind"`
+		WorkspaceID string `json:"workspace_id"`
+		AtMinute    *int64 `json:"at_minute"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
+		writeErr(w, 400, fmt.Errorf("could not read the request: %w", err))
+		return
+	}
+	a2, err := a.Svc.CreateAutomation(r.Context(), body.Name, body.Kind, body.WorkspaceID, body.AtMinute)
+	if err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"automation": a2})
+}
+
+func (a *API) handleDeleteAutomation(w http.ResponseWriter, r *http.Request) {
+	if err := a.Svc.DeleteAutomation(r.Context(), r.PathValue("id")); err != nil {
+		writeErr(w, 404, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"deleted": true})
+}
+
+func (a *API) handleEnableAutomation(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
+		writeErr(w, 400, fmt.Errorf("could not read the request: %w", err))
+		return
+	}
+	if err := a.Svc.SetAutomationEnabled(r.Context(), r.PathValue("id"), body.Enabled); err != nil {
+		writeErr(w, 404, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"enabled": body.Enabled})
+}
+
+// handleRollups serves long-term usage. These outlive the pruned decision rows, so this is
+// the only place a question about last month can be answered.
+func (a *API) handleRollups(w http.ResponseWriter, r *http.Request) {
+	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
+	if days <= 0 || days > 365 {
+		days = 30
+	}
+	since := a.Svc.Clock.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	buckets, err := a.Svc.DB.Rollups(r.Context(), since)
+	if err != nil {
+		writeErr(w, 500, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"days": days, "buckets": buckets})
+}
+
+func (a *API) handleNetwork(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]any{
+		"upstream_base":  a.Svc.UpstreamBase,
+		"upstream_proxy": a.Svc.UpstreamProxyValue(r.Context()),
+	})
+}
+
+func (a *API) handleSetProxy(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Proxy string `json:"proxy"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
+		writeErr(w, 400, fmt.Errorf("could not read the request: %w", err))
+		return
+	}
+	if err := a.Svc.SetUpstreamProxy(r.Context(), body.Proxy); err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"upstream_proxy": body.Proxy})
+}

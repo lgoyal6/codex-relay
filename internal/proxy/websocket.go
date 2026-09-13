@@ -33,6 +33,10 @@ func (p *Proxy) serveWebSocket(w http.ResponseWriter, r *http.Request, route Rou
 	if authErr != nil {
 		p.opt.Selector.RecordDecision(Record{
 			At: started, ThreadID: threadID, Attempt: 1,
+			Decision: policy.Decision{
+				Outcome: policy.OutcomeBlocked, Primary: "unauthorized",
+				Summary: "This request carried no usable API key, and the relay is locked.",
+			},
 			StatusCode: http.StatusUnauthorized, ErrorClass: "unauthorized",
 			FailurePhase: "admission", Transport: "websocket", ErrorMessage: authErr.Error(),
 		})
