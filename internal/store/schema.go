@@ -144,4 +144,12 @@ var migrations = []string{
 	`ALTER TABLE decisions ADD COLUMN cached_input_tokens INTEGER;`,
 	`ALTER TABLE decisions ADD COLUMN output_tokens INTEGER;`,
 	`ALTER TABLE decisions ADD COLUMN total_tokens INTEGER;`,
+
+	// Diagnostic detail. Until these existed a failed turn recorded only a bucket
+	// ("quota", "upstream"), which tells a user that something broke but never what.
+	`ALTER TABLE decisions ADD COLUMN error_message TEXT;`,
+	`ALTER TABLE decisions ADD COLUMN failure_phase TEXT;`,
+	`ALTER TABLE decisions ADD COLUMN upstream_status INTEGER;`,
+	`ALTER TABLE decisions ADD COLUMN transport TEXT;`,
+	`ALTER TABLE decisions ADD COLUMN upstream_ms INTEGER;`,
 }

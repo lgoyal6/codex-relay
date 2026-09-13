@@ -48,6 +48,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 		p.opt.Selector.RecordDecision(Record{
 			At: started, ThreadID: threadID, Model: model, Decision: d,
 			Attempt: 1, StatusCode: http.StatusServiceUnavailable, ErrorClass: "blocked_by_policy",
+			FailurePhase: "admission", Transport: "http", ErrorMessage: d.Summary,
 			TotalMS: p.opt.Clock.Now().Sub(started).Milliseconds(),
 		})
 		writeProblem(w, http.StatusServiceUnavailable, d.Summary)
@@ -66,6 +67,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 			p.opt.Selector.RecordDecision(Record{
 				At: started, ThreadID: threadID, Model: model, Decision: d,
 				Attempt: 1, StatusCode: http.StatusConflict, ErrorClass: "ownership_conflict",
+				FailurePhase: "admission", Transport: "http", ErrorMessage: err.Error(),
 				TotalMS: p.opt.Clock.Now().Sub(started).Milliseconds(),
 			})
 			writeProblem(w, http.StatusConflict, fmt.Sprintf(
@@ -79,6 +81,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 		p.opt.Selector.RecordDecision(Record{
 			At: started, ThreadID: threadID, Model: model, Decision: d,
 			Attempt: 1, StatusCode: http.StatusBadGateway, ErrorClass: "credential_unavailable",
+			FailurePhase: "admission", Transport: "http", ErrorMessage: err.Error(),
 			TotalMS: p.opt.Clock.Now().Sub(started).Milliseconds(),
 		})
 		writeProblem(w, http.StatusBadGateway, fmt.Sprintf("could not use the selected workspace: %v", err))
@@ -95,7 +98,9 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 	// cancelled, the upstream request is torn down, and we stop. We never retry a turn
 	// after output has begun: replay safety has not been demonstrated for this protocol,
 	// so a mid-stream failure is surfaced rather than silently re-sent.
+	upstreamStart := p.opt.Clock.Now()
 	resp, err := p.opt.HTTPClient.Do(req)
+	upstreamMS := p.opt.Clock.Now().Sub(upstreamStart).Milliseconds()
 	if err != nil {
 		cls := "transport"
 		if r.Context().Err() != nil {
@@ -103,8 +108,9 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 		}
 		p.opt.Selector.RecordDecision(Record{
 			At: started, ThreadID: threadID, Model: model, Decision: d,
-			Attempt: 1, ErrorClass: cls,
-			TotalMS: p.opt.Clock.Now().Sub(started).Milliseconds(),
+			Attempt: 1, ErrorClass: cls, FailurePhase: "upstream_connect", Transport: "http",
+			ErrorMessage: err.Error(),
+			TotalMS:      p.opt.Clock.Now().Sub(started).Milliseconds(),
 		})
 		writeUpstreamError(w, err)
 		return
@@ -148,6 +154,9 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 	// The SSE path carries quota in-band too, for the same reason the WebSocket path does:
 	// the real backend does not put rate-limit headers on a streamed generation response.
 	var inStreamClass string
+	// The upstream's own words. MaybeStreamError already parsed this and it was being
+	// dropped; a user debugging a failed turn saw the bucket and never the reason.
+	var streamErrMessage string
 	var usage *upstream.TokenUsage
 	onFrame := func(frame []byte) {
 		if u, ok := upstream.MaybeTokenUsage(frame); ok {
@@ -159,6 +168,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 		}
 		if f, ok := upstream.MaybeStreamError(frame); ok && inStreamClass == "" {
 			inStreamClass = f.Class
+			streamErrMessage = f.Message
 		}
 	}
 
@@ -179,7 +189,12 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 		At: started, ThreadID: threadID, Model: model, Decision: d,
 		Attempt: attempt, StatusCode: resp.StatusCode,
 		FirstTokenMS: firstToken, TotalMS: total, Usage: usage,
-		ErrorClass: class,
+		ErrorClass:     class,
+		Transport:      "http",
+		UpstreamStatus: resp.StatusCode,
+		UpstreamMS:     upstreamMS,
+		ErrorMessage:   streamErrMessage,
+		FailurePhase:   phaseFor(class, resp.StatusCode),
 	})
 }
 
@@ -333,7 +348,9 @@ func (p *Proxy) retryElsewhere(
 	p.opt.Selector.RecordDecision(Record{
 		At: started, ThreadID: threadID, Model: model, Decision: d,
 		Attempt: 1, StatusCode: first.StatusCode, ErrorClass: "quota",
-		TotalMS: p.opt.Clock.Now().Sub(started).Milliseconds(),
+		FailurePhase: "upstream_status", Transport: "http", UpstreamStatus: first.StatusCode,
+		ErrorMessage: "upstream refused this turn on quota; retried on another workspace",
+		TotalMS:      p.opt.Clock.Now().Sub(started).Milliseconds(),
 	})
 
 	if err := p.opt.Selector.Reassign(r.Context(), threadID, d.WorkspaceID); err != nil {
@@ -359,4 +376,20 @@ func (p *Proxy) retryElsewhere(
 	}
 	first.Body.Close()
 	return resp, true
+}
+
+// phaseFor says how far a turn got, which the status code alone cannot express. A 200 that
+// failed mid-stream and a 429 refused before any byte left are different problems with
+// different fixes, and a user reading history needs to see which one they had.
+func phaseFor(class string, status int) string {
+	switch {
+	case class == "":
+		return ""
+	case class == "client_cancelled":
+		return "client"
+	case status >= 400:
+		return "upstream_status"
+	default:
+		return "stream"
+	}
 }

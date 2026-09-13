@@ -38,6 +38,12 @@ func (p *Proxy) serveWebSocket(w http.ResponseWriter, r *http.Request, route Rou
 	// usage holds the model's own token counts, written on the pump goroutine when the turn
 	// reports them and read here when the turn ends.
 	var usage atomic.Pointer[upstream.TokenUsage]
+	// Written on the dial path and on the pump goroutine, read when the turn ends, so these
+	// follow the same atomic pattern as usage above rather than inviting a race.
+	var upstreamStatus atomic.Int64
+	var upgradeMS atomic.Int64
+	upgradeMS.Store(-1)
+	var streamErrMsg atomic.Pointer[string]
 	record := func(status int, class string) {
 		p.opt.Selector.RecordDecision(Record{
 			At: started, ThreadID: threadID, Decision: d, Attempt: 1,
@@ -45,6 +51,13 @@ func (p *Proxy) serveWebSocket(w http.ResponseWriter, r *http.Request, route Rou
 			Usage:        usage.Load(),
 			FirstTokenMS: firstMS,
 			TotalMS:      p.opt.Clock.Now().Sub(started).Milliseconds(),
+			// Most real turns take this path, so without transport recorded the history
+			// could not tell which half of the proxy a failure came from.
+			Transport:      "websocket",
+			UpstreamStatus: int(upstreamStatus.Load()),
+			UpstreamMS:     upgradeMS.Load(),
+			ErrorMessage:   derefOr(streamErrMsg.Load()),
+			FailurePhase:   wsPhaseFor(class),
 		})
 	}
 
@@ -85,10 +98,15 @@ func (p *Proxy) serveWebSocket(w http.ResponseWriter, r *http.Request, route Rou
 
 	dialCtx, cancelDial := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancelDial()
+	dialStart := p.opt.Clock.Now()
 	up, upResp, err := websocket.Dial(dialCtx, target, &websocket.DialOptions{
 		HTTPClient: p.opt.HTTPClient,
 		HTTPHeader: hdr,
 	})
+	upgradeMS.Store(p.opt.Clock.Now().Sub(dialStart).Milliseconds())
+	if upResp != nil {
+		upstreamStatus.Store(int64(upResp.StatusCode))
+	}
 	if err != nil {
 		status := http.StatusBadGateway
 		if upResp != nil {
@@ -179,6 +197,8 @@ func (p *Proxy) serveWebSocket(w http.ResponseWriter, r *http.Request, route Rou
 		if f, ok := upstream.MaybeStreamError(frame); ok {
 			cls := f.Class
 			streamClass.CompareAndSwap(nil, &cls)
+			msg := f.Message
+			streamErrMsg.CompareAndSwap(nil, &msg)
 			p.opt.Logger.Warn("upstream refused a turn in-stream",
 				"workspace", id.WorkspaceID, "class", f.Class, "status", f.Status)
 		}
@@ -239,4 +259,31 @@ func toWebSocketURL(u string) string {
 		return "ws://" + strings.TrimPrefix(u, "http://")
 	}
 	return u
+}
+
+// wsPhaseFor maps a websocket failure class to how far the turn got. The upgrade either
+// happened or it did not, and after it did, everything is in-stream.
+func wsPhaseFor(class string) string {
+	switch class {
+	case "":
+		return ""
+	case "blocked_by_policy", "credential_unavailable", "ownership_conflict":
+		return "admission"
+	case "upstream_upgrade_refused":
+		return "upstream_connect"
+	case "client_upgrade_failed":
+		return "client"
+	case "client_cancelled":
+		return "client"
+	default:
+		return "stream"
+	}
+}
+
+// derefOr reads an optional string written from another goroutine.
+func derefOr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }

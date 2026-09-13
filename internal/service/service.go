@@ -38,9 +38,10 @@ type Service struct {
 
 	// audit serializes best-effort history writes off the turn path. A full queue drops
 	// rows rather than slowing a stream: history is optional, routing is not.
-	audit chan proxy.Record
-	once  sync.Once
-	stop  chan struct{}
+	audit     chan proxy.Record
+	once      sync.Once
+	closeOnce sync.Once
+	stop      chan struct{}
 }
 
 func New(db *store.DB, reg *routing.Registry, creds *CredentialManager, sec secrets.Store, clk clock.Clock, log *slog.Logger) *Service {
@@ -69,7 +70,37 @@ func (s *Service) Start() {
 	})
 }
 
-func (s *Service) Close() { close(s.stop) }
+// Close stops the audit writer, draining whatever is already queued first.
+//
+// Without the drain, decisions recorded in the last moments before shutdown were lost: the
+// writer selects on the queue and the stop signal, and stop could win. The effect was that
+// the final turns of every session were missing from Activity after a restart, which reads
+// as history being unreliable rather than as a shutdown race.
+//
+// Bounded, because shutdown must not hang on a database that has stopped answering.
+func (s *Service) Close() {
+	s.closeOnce.Do(s.drainAndStop)
+}
+
+// drainAndStop runs exactly once, because closing an already-closed channel panics and Close
+// is reachable from both a defer and an explicit shutdown path.
+func (s *Service) drainAndStop() {
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case rec := <-s.audit:
+			if err := s.writeDecision(rec); err != nil {
+				s.Log.Warn("could not record activity during shutdown", "error", err)
+			}
+		case <-deadline:
+			close(s.stop)
+			return
+		default:
+			close(s.stop)
+			return
+		}
+	}
+}
 
 // --- proxy.Selector ---
 
@@ -274,14 +305,18 @@ func (s *Service) writeDecision(rec proxy.Record) error {
 	_, err = s.DB.SQL().Exec(`
 		INSERT INTO decisions (at, thread_id, model, outcome, workspace_id, primary_reason, summary,
 			detail_json, state_version, attempt, status_code, first_token_ms, total_ms, error_class,
-			input_tokens, cached_input_tokens, output_tokens, total_tokens)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			input_tokens, cached_input_tokens, output_tokens, total_tokens,
+			error_message, failure_phase, upstream_status, transport, upstream_ms)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		rec.At.Format(time.RFC3339Nano), nullIfEmpty(rec.ThreadID), nullIfEmpty(rec.Model),
 		string(rec.Decision.Outcome), nullIfEmpty(rec.Decision.WorkspaceID),
 		string(rec.Decision.Primary), rec.Decision.Summary, string(detail),
 		rec.Decision.StateVersion, rec.Attempt, nullIfZero(rec.StatusCode),
 		nullIfUnmeasured(rec.FirstTokenMS), nullIfUnmeasured(rec.TotalMS), rec.ErrorClass,
-		inTok, cachedTok, outTok, totTok)
+		inTok, cachedTok, outTok, totTok,
+		nullIfEmpty(rec.ErrorMessage), nullIfEmpty(rec.FailurePhase),
+		nullIfZero(rec.UpstreamStatus), nullIfEmpty(rec.Transport),
+		nullIfUnmeasured(rec.UpstreamMS))
 	if err != nil {
 		return err
 	}

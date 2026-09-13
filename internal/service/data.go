@@ -205,6 +205,21 @@ type ActivityRow struct {
 	FirstTokenMS *int64 `json:"first_token_ms"`
 	TotalMS      *int64 `json:"total_ms"`
 	ErrorClass   string `json:"error_class,omitempty"`
+
+	// Diagnostic detail. ErrorClass buckets a failure; these say what actually happened.
+	ErrorMessage string `json:"error_message,omitempty"`
+	// FailurePhase is how far the turn got: admission, upstream_connect, upstream_status,
+	// stream, client. A 200 that died mid-stream and a 429 refused before anything was sent
+	// are different problems, and the status code cannot separate them.
+	FailurePhase string `json:"failure_phase,omitempty"`
+	// UpstreamStatus can differ from StatusCode: a quota refusal retried on another
+	// workspace shows 429 here and 200 to the client.
+	UpstreamStatus int    `json:"upstream_status,omitempty"`
+	Transport      string `json:"transport,omitempty"`
+	// UpstreamMS is how long upstream took to answer at all: response headers on HTTP, the
+	// upgrade on WebSocket. Subtracting it from FirstTokenMS does NOT give the relay's
+	// own cost, because the model starts generating only after that point.
+	UpstreamMS *int64 `json:"upstream_ms"`
 }
 
 func (s *Service) Activity(ctx context.Context, limit int) ([]ActivityRow, error) {
@@ -213,7 +228,8 @@ func (s *Service) Activity(ctx context.Context, limit int) ([]ActivityRow, error
 	}
 	rows, err := s.DB.SQL().QueryContext(ctx, `
 		SELECT id, at, thread_id, model, outcome, workspace_id, primary_reason, summary,
-		       detail_json, attempt, status_code, first_token_ms, total_ms, error_class
+		       detail_json, attempt, status_code, first_token_ms, total_ms, error_class,
+		       error_message, failure_phase, upstream_status, transport, upstream_ms
 		FROM decisions ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -223,11 +239,18 @@ func (s *Service) Activity(ctx context.Context, limit int) ([]ActivityRow, error
 	for rows.Next() {
 		var r ActivityRow
 		var at, detail string
-		var thread, model, ws, errClass sql.NullString
-		var status, first, total sql.NullInt64
+		var thread, model, ws, errClass, errMsg, phase, transport sql.NullString
+		var status, first, total, upStatus, upMS sql.NullInt64
 		if err := rows.Scan(&r.ID, &at, &thread, &model, &r.Outcome, &ws, &r.Reason, &r.Summary,
-			&detail, &r.Attempt, &status, &first, &total, &errClass); err != nil {
+			&detail, &r.Attempt, &status, &first, &total, &errClass,
+			&errMsg, &phase, &upStatus, &transport, &upMS); err != nil {
 			return nil, err
+		}
+		r.ErrorMessage, r.FailurePhase, r.Transport = errMsg.String, phase.String, transport.String
+		r.UpstreamStatus = int(upStatus.Int64)
+		if upMS.Valid {
+			v := upMS.Int64
+			r.UpstreamMS = &v
 		}
 		r.At, _ = time.Parse(time.RFC3339Nano, at)
 		r.ThreadID, r.Model, r.WorkspaceID, r.ErrorClass = thread.String, model.String, ws.String, errClass.String

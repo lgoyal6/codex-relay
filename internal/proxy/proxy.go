@@ -66,6 +66,26 @@ type Record struct {
 	ErrorClass   string
 	// Usage is the model's own reported token counts, when the turn reported any.
 	Usage *upstream.TokenUsage
+
+	// ErrorMessage is what upstream actually said. ErrorClass buckets a failure so rules can
+	// act on it; this is the sentence a person needs to know WHY, and losing it means a user
+	// debugging a broken turn sees "quota" and nothing else.
+	ErrorMessage string
+	// FailurePhase says how far the turn got: "admission", "upstream_connect", "upstream_status",
+	// "stream". A failure before any byte left is a different problem from one mid-stream, and
+	// the status code alone cannot tell them apart.
+	FailurePhase string
+	// UpstreamStatus is what the backend returned, which is not always what the client saw.
+	// A quota refusal that is retried elsewhere shows 429 here and 200 to the client.
+	UpstreamStatus int
+	// Transport is "http" or "websocket". The two paths have different failure modes and
+	// different latency, and until now the history could not distinguish them.
+	Transport string
+	// UpstreamMS is how long the upstream took to answer at all: on HTTP the response
+	// headers, on WebSocket the upgrade. It is NOT a latency budget you can subtract
+	// FirstTokenMS from, because after the upgrade the model still has to start
+	// generating. It answers "was upstream slow to accept this", nothing more.
+	UpstreamMS int64
 }
 
 // Options configures the proxy.

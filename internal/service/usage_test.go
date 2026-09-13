@@ -7,8 +7,11 @@ import (
 	"os"
 	"testing"
 
+	"github.com/lgoyal6/codex-relay/internal/policy"
+	"github.com/lgoyal6/codex-relay/internal/proxy"
 	"github.com/lgoyal6/codex-relay/internal/secrets"
 	"github.com/lgoyal6/codex-relay/internal/upstream"
+	"time"
 )
 
 // A paused workspace must still be polled. Pausing means "do not route here", and a paused
@@ -169,4 +172,78 @@ func TestOneRowPerWindowAcrossLimitFamilies(t *testing.T) {
 	if pct != 42 {
 		t.Errorf("used_percent = %v, want the newest reading 42", pct)
 	}
+}
+
+// Diagnostic fields have to survive the write, not merely exist on the struct. A column that
+// is always NULL is worse than no column: it looks like coverage and answers nothing.
+func TestDecisionRecordsDiagnosticDetail(t *testing.T) {
+	sec := secrets.NewMemory()
+	svc := connectService(t, sec)
+	ctx := context.Background()
+	mustExec(t, svc, `INSERT INTO accounts (id, chatgpt_user_id, email, plan_type, created_at)
+		VALUES ('a','u','a@example.com','plus','2026-09-12T00:00:00Z')`)
+	mustExec(t, svc, `INSERT INTO workspaces (id, account_id, chatgpt_account_id, display_name, paused, credential_ref, credential_ok, sort_order, created_at, updated_at)
+		VALUES ('ws','a','cg','WS',0,'r',1,0,'2026-09-12T00:00:00Z','2026-09-12T00:00:00Z')`)
+
+	// Called directly rather than through the audit queue: this asserts what the writer
+	// persists, and a queue in between would hide the error behind a discarded log line.
+	if err := svc.writeDecision(proxy.Record{
+		At:       time.Date(2026, 9, 13, 1, 0, 0, 0, time.UTC),
+		ThreadID: "t-diag",
+		Model:    "gpt-5.1-codex",
+		Decision: policy.Decision{
+			Outcome: policy.OutcomeSelected, WorkspaceID: "ws", Primary: policy.ReasonDefault,
+			Summary: "s",
+		},
+		Attempt: 2, StatusCode: 200,
+		FirstTokenMS: 800, TotalMS: 1200,
+		ErrorClass:     "quota",
+		ErrorMessage:   "You have hit your usage limit.",
+		FailurePhase:   "upstream_status",
+		UpstreamStatus: 429,
+		Transport:      "websocket",
+		UpstreamMS:     640,
+	}); err != nil {
+		t.Fatalf("writing a decision failed: %v", err)
+	}
+
+	var msg, phase, transport string
+	var upstream, upMS int64
+	err := svc.DB.SQL().QueryRowContext(ctx, `
+		SELECT error_message, failure_phase, upstream_status, transport, upstream_ms
+		FROM decisions WHERE thread_id='t-diag'`).Scan(&msg, &phase, &upstream, &transport, &upMS)
+	if err != nil {
+		t.Fatalf("diagnostic columns not stored: %v", err)
+	}
+	if msg != "You have hit your usage limit." {
+		t.Errorf("error_message = %q; the upstream's own words are the point", msg)
+	}
+	if phase != "upstream_status" {
+		t.Errorf("failure_phase = %q", phase)
+	}
+	// The client saw 200 because the turn was retried; upstream still said 429.
+	if upstream != 429 {
+		t.Errorf("upstream_status = %d, want 429 recorded separately from what the client saw", upstream)
+	}
+	if transport != "websocket" {
+		t.Errorf("transport = %q", transport)
+	}
+	if upMS != 640 {
+		t.Errorf("upstream_ms = %d; without it the proxy's own share of latency is unknowable", upMS)
+	}
+}
+
+// Close is reachable from a defer and from an explicit shutdown, and it closes a channel.
+// Closing a closed channel panics and takes the process with it, so it has to be idempotent.
+func TestCloseIsIdempotent(t *testing.T) {
+	sec := secrets.NewMemory()
+	svc := connectService(t, sec)
+	defer func() {
+		if p := recover(); p != nil {
+			t.Fatalf("calling Close more than once panicked: %v", p)
+		}
+	}()
+	svc.Close()
+	svc.Close()
+	svc.Close()
 }
