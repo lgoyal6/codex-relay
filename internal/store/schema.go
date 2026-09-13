@@ -152,4 +152,20 @@ var migrations = []string{
 	`ALTER TABLE decisions ADD COLUMN upstream_status INTEGER;`,
 	`ALTER TABLE decisions ADD COLUMN transport TEXT;`,
 	`ALTER TABLE decisions ADD COLUMN upstream_ms INTEGER;`,
+
+	// API keys let a client other than Codex use the pool, and let the proxy be locked so it
+	// is not open to every process on the machine. The key itself is never stored: only a
+	// SHA-256 of it, plus a short prefix so a key can be identified in a list.
+	`CREATE TABLE api_keys (
+		id           TEXT PRIMARY KEY,
+		name         TEXT NOT NULL,
+		prefix       TEXT NOT NULL,
+		key_hash     TEXT NOT NULL UNIQUE,
+		created_at   TEXT NOT NULL,
+		last_used_at TEXT,
+		revoked_at   TEXT,
+		daily_limit  INTEGER
+	);`,
+	`CREATE INDEX idx_api_keys_hash ON api_keys(key_hash);`,
+	`ALTER TABLE decisions ADD COLUMN api_key_id TEXT;`,
 }

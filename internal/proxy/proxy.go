@@ -41,6 +41,9 @@ type Selector interface {
 	Claim(ctx context.Context, threadID, workspaceID string) error
 	// Reassign re-points a conversation after the evaluator decided to hand it off.
 	Reassign(ctx context.Context, threadID, workspaceID string) error
+	// Authenticate resolves the caller to an API key id, or refuses when the relay is
+	// locked. An empty id with no error means an unlocked relay and an anonymous caller.
+	Authenticate(ctx context.Context, r *http.Request) (keyID string, err error)
 	// ObserveQuota records rate-limit evidence seen on a real response.
 	ObserveQuota(ctx context.Context, workspaceID string, snaps []upstream.Snapshot)
 	// ObserveModels records the model catalog one identity reported. An empty list is
@@ -66,6 +69,8 @@ type Record struct {
 	ErrorClass   string
 	// Usage is the model's own reported token counts, when the turn reported any.
 	Usage *upstream.TokenUsage
+	// APIKeyID attributes the turn to a relay key, empty when the caller was anonymous.
+	APIKeyID string
 
 	// ErrorMessage is what upstream actually said. ErrorClass buckets a failure so rules can
 	// act on it; this is the sentence a person needs to know WHY, and losing it means a user

@@ -32,6 +32,19 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 	threadID := conversationID(r)
 	model, rawBody := modelFromBody(r)
 
+	// Authenticate before anything else. Until this existed the proxy was open to every
+	// process on the machine, and an unauthenticated caller could spend real quota.
+	keyID, authErr := p.opt.Selector.Authenticate(r.Context(), r)
+	if authErr != nil {
+		p.opt.Selector.RecordDecision(Record{
+			At: started, ThreadID: threadID, Model: model, Attempt: 1,
+			StatusCode: http.StatusUnauthorized, ErrorClass: "unauthorized",
+			FailurePhase: "admission", Transport: "http", ErrorMessage: authErr.Error(),
+		})
+		writeProblem(w, http.StatusUnauthorized, authErr.Error())
+		return
+	}
+
 	owner, _, err := p.opt.Selector.OwnerOf(r.Context(), threadID)
 	if err != nil {
 		p.opt.Logger.Warn("ownership lookup failed", "error", err)
@@ -46,7 +59,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 	if d.Outcome != policy.OutcomeSelected {
 		// Nothing is spent and the client is told why, in its own error channel.
 		p.opt.Selector.RecordDecision(Record{
-			At: started, ThreadID: threadID, Model: model, Decision: d,
+			At: started, ThreadID: threadID, Model: model, Decision: d, APIKeyID: keyID,
 			Attempt: 1, StatusCode: http.StatusServiceUnavailable, ErrorClass: "blocked_by_policy",
 			FailurePhase: "admission", Transport: "http", ErrorMessage: d.Summary,
 			TotalMS: p.opt.Clock.Now().Sub(started).Milliseconds(),
@@ -65,7 +78,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := bind(r.Context(), threadID, d.WorkspaceID); err != nil {
 			p.opt.Selector.RecordDecision(Record{
-				At: started, ThreadID: threadID, Model: model, Decision: d,
+				At: started, ThreadID: threadID, Model: model, Decision: d, APIKeyID: keyID,
 				Attempt: 1, StatusCode: http.StatusConflict, ErrorClass: "ownership_conflict",
 				FailurePhase: "admission", Transport: "http", ErrorMessage: err.Error(),
 				TotalMS: p.opt.Clock.Now().Sub(started).Milliseconds(),
@@ -79,7 +92,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 	id, err := p.opt.Selector.Identity(r.Context(), d.WorkspaceID)
 	if err != nil {
 		p.opt.Selector.RecordDecision(Record{
-			At: started, ThreadID: threadID, Model: model, Decision: d,
+			At: started, ThreadID: threadID, Model: model, Decision: d, APIKeyID: keyID,
 			Attempt: 1, StatusCode: http.StatusBadGateway, ErrorClass: "credential_unavailable",
 			FailurePhase: "admission", Transport: "http", ErrorMessage: err.Error(),
 			TotalMS: p.opt.Clock.Now().Sub(started).Milliseconds(),
@@ -107,7 +120,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 			cls = "client_cancelled"
 		}
 		p.opt.Selector.RecordDecision(Record{
-			At: started, ThreadID: threadID, Model: model, Decision: d,
+			At: started, ThreadID: threadID, Model: model, Decision: d, APIKeyID: keyID,
 			Attempt: 1, ErrorClass: cls, FailurePhase: "upstream_connect", Transport: "http",
 			ErrorMessage: err.Error(),
 			TotalMS:      p.opt.Clock.Now().Sub(started).Milliseconds(),
@@ -133,7 +146,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 			Exclude:          []string{d.WorkspaceID},
 		})
 		if retryDecision.Outcome == policy.OutcomeSelected && retryDecision.WorkspaceID != d.WorkspaceID {
-			if retried, ok := p.retryElsewhere(w, r, retryDecision, rawBody, started, threadID, model, resp); ok {
+			if retried, ok := p.retryElsewhere(w, r, retryDecision, rawBody, started, threadID, model, keyID, resp); ok {
 				resp = retried
 				d = retryDecision
 				attempt = 2
@@ -186,7 +199,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p.opt.Selector.RecordDecision(Record{
-		At: started, ThreadID: threadID, Model: model, Decision: d,
+		At: started, ThreadID: threadID, Model: model, Decision: d, APIKeyID: keyID,
 		Attempt: attempt, StatusCode: resp.StatusCode,
 		FirstTokenMS: firstToken, TotalMS: total, Usage: usage,
 		ErrorClass:     class,
@@ -342,11 +355,11 @@ func errorClassFor(status int) string {
 // rather than an error invented here.
 func (p *Proxy) retryElsewhere(
 	w http.ResponseWriter, r *http.Request, d policy.Decision, rawBody []byte,
-	started time.Time, threadID, model string, first *http.Response,
+	started time.Time, threadID, model, keyID string, first *http.Response,
 ) (*http.Response, bool) {
 	// Record the refusal that caused the move, so the history shows both halves.
 	p.opt.Selector.RecordDecision(Record{
-		At: started, ThreadID: threadID, Model: model, Decision: d,
+		At: started, ThreadID: threadID, Model: model, Decision: d, APIKeyID: keyID,
 		Attempt: 1, StatusCode: first.StatusCode, ErrorClass: "quota",
 		FailurePhase: "upstream_status", Transport: "http", UpstreamStatus: first.StatusCode,
 		ErrorMessage: "upstream refused this turn on quota; retried on another workspace",

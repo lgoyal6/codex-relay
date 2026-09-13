@@ -325,3 +325,82 @@ func redactID(id string) string {
 	}
 	return id[:8] + "..."
 }
+
+// handleListKeys returns every key, revoked included. The secret is not among them: it exists
+// only in the response to the request that created it.
+func (a *API) handleListKeys(w http.ResponseWriter, r *http.Request) {
+	keys, err := a.Svc.ListAPIKeys(r.Context())
+	if err != nil {
+		writeErr(w, 500, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"keys":        keys,
+		"require_key": a.Svc.RequireAPIKey(r.Context()),
+		"header":      service.KeyHeader,
+	})
+}
+
+func (a *API) handleCreateKey(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name       string `json:"name"`
+		DailyLimit *int64 `json:"daily_limit"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
+		writeErr(w, 400, fmt.Errorf("could not read the request: %w", err))
+		return
+	}
+	key, secret, err := a.Svc.CreateAPIKey(r.Context(), body.Name, body.DailyLimit)
+	if err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	// The only time the secret is ever returned. It cannot be recovered afterwards.
+	writeJSON(w, 200, map[string]any{"key": key, "secret": secret})
+}
+
+func (a *API) handleRevokeKey(w http.ResponseWriter, r *http.Request) {
+	if err := a.Svc.RevokeAPIKey(r.Context(), r.PathValue("id")); err != nil {
+		writeErr(w, 404, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"revoked": true})
+}
+
+// handleRequireKey locks or unlocks the proxy. Locking with no usable key would make the
+// relay unreachable, so that combination is refused rather than accepted and regretted.
+func (a *API) handleRequireKey(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Require bool `json:"require"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
+		writeErr(w, 400, fmt.Errorf("could not read the request: %w", err))
+		return
+	}
+	if body.Require {
+		keys, err := a.Svc.ListAPIKeys(r.Context())
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		live := 0
+		for _, k := range keys {
+			if !k.Revoked() {
+				live++
+			}
+		}
+		if live == 0 {
+			writeErr(w, 400, fmt.Errorf("create a key first: locking the relay with no live key would make it unreachable"))
+			return
+		}
+	}
+	v := "false"
+	if body.Require {
+		v = "true"
+	}
+	if err := a.Svc.SetSetting(r.Context(), service.RequireKeySetting, v); err != nil {
+		writeErr(w, 500, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"require_key": body.Require})
+}

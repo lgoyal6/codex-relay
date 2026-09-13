@@ -27,6 +27,7 @@ type fakeSelector struct {
 	reassigns  []string
 	decideFn   func(policy.Request) policy.Decision
 	identityFn func(string) (Identity, error)
+	authFn     func(*http.Request) (string, error)
 	claimErr   error
 	quota      []upstream.Snapshot
 	quotaWS    string
@@ -55,6 +56,15 @@ func (f *fakeSelector) Claim(_ context.Context, thread, ws string) error {
 	defer f.mu.Unlock()
 	f.claims = append(f.claims, thread+"->"+ws)
 	return f.claimErr
+}
+
+// Authenticate defaults to an unlocked relay so existing tests are unaffected; a test that
+// cares sets authFn.
+func (f *fakeSelector) Authenticate(_ context.Context, r *http.Request) (string, error) {
+	if f.authFn != nil {
+		return f.authFn(r)
+	}
+	return "", nil
 }
 
 // Reassign is recorded separately from Claim so a test can tell a handoff from a first bind.

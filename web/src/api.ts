@@ -244,6 +244,17 @@ function readBoot(): Boot {
 export const boot = readBoot();
 
 /** ApiError carries the server's own wording, which is written to be shown to a person. */
+/** ApiKey never carries the secret: that exists only in the response that created it. */
+export type ApiKey = {
+  id: string;
+  name: string;
+  prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  daily_limit: number | null;
+};
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -330,6 +341,21 @@ export const api = {
   refreshWorkspaces: () => call<{ refreshed: boolean }>("/api/workspaces/refresh", { method: "POST" }),
   setPricing: (p: Partial<Pricing>) =>
     call<Pricing>("/api/settings/pricing", { method: "POST", body: JSON.stringify(p) }),
+  listKeys: () =>
+    call<{ keys: ApiKey[]; require_key: boolean; header: string }>("/api/keys"),
+  createKey: (name: string, dailyLimit: number | null) =>
+    call<{ key: ApiKey; secret: string }>("/api/keys", {
+      method: "POST",
+      body: JSON.stringify({ name, daily_limit: dailyLimit }),
+    }),
+  revokeKey: (id: string) =>
+    call<{ revoked: boolean }>(`/api/keys/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  setRequireKey: (require: boolean) =>
+    call<{ require_key: boolean }>("/api/settings/require-key", {
+      method: "POST",
+      body: JSON.stringify({ require }),
+    }),
+
   setDefaultWorkspace: (id: string) =>
     call<{ default_workspace_id: string }>("/api/settings/default-workspace", {
       method: "POST",

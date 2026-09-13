@@ -306,8 +306,8 @@ func (s *Service) writeDecision(rec proxy.Record) error {
 		INSERT INTO decisions (at, thread_id, model, outcome, workspace_id, primary_reason, summary,
 			detail_json, state_version, attempt, status_code, first_token_ms, total_ms, error_class,
 			input_tokens, cached_input_tokens, output_tokens, total_tokens,
-			error_message, failure_phase, upstream_status, transport, upstream_ms)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			error_message, failure_phase, upstream_status, transport, upstream_ms, api_key_id)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		rec.At.Format(time.RFC3339Nano), nullIfEmpty(rec.ThreadID), nullIfEmpty(rec.Model),
 		string(rec.Decision.Outcome), nullIfEmpty(rec.Decision.WorkspaceID),
 		string(rec.Decision.Primary), rec.Decision.Summary, string(detail),
@@ -316,7 +316,7 @@ func (s *Service) writeDecision(rec proxy.Record) error {
 		inTok, cachedTok, outTok, totTok,
 		nullIfEmpty(rec.ErrorMessage), nullIfEmpty(rec.FailurePhase),
 		nullIfZero(rec.UpstreamStatus), nullIfEmpty(rec.Transport),
-		nullIfUnmeasured(rec.UpstreamMS))
+		nullIfUnmeasured(rec.UpstreamMS), nullIfEmpty(rec.APIKeyID))
 	if err != nil {
 		return err
 	}

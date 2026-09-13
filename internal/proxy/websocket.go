@@ -28,6 +28,18 @@ func (p *Proxy) serveWebSocket(w http.ResponseWriter, r *http.Request, route Rou
 	started := p.opt.Clock.Now()
 	threadID := conversationID(r)
 
+	// Same gate as the HTTP path, before any credential is resolved or quota is spent.
+	keyID, authErr := p.opt.Selector.Authenticate(r.Context(), r)
+	if authErr != nil {
+		p.opt.Selector.RecordDecision(Record{
+			At: started, ThreadID: threadID, Attempt: 1,
+			StatusCode: http.StatusUnauthorized, ErrorClass: "unauthorized",
+			FailurePhase: "admission", Transport: "websocket", ErrorMessage: authErr.Error(),
+		})
+		writeProblem(w, http.StatusUnauthorized, authErr.Error())
+		return
+	}
+
 	owner, _, _ := p.opt.Selector.OwnerOf(r.Context(), threadID)
 	d := p.opt.Selector.Decide(r.Context(), policy.Request{OwnerWorkspaceID: owner, ThreadID: threadID})
 	// Every exit from this path is recorded, exactly as on the HTTP path. A failure that
@@ -46,7 +58,7 @@ func (p *Proxy) serveWebSocket(w http.ResponseWriter, r *http.Request, route Rou
 	var streamErrMsg atomic.Pointer[string]
 	record := func(status int, class string) {
 		p.opt.Selector.RecordDecision(Record{
-			At: started, ThreadID: threadID, Decision: d, Attempt: 1,
+			At: started, ThreadID: threadID, Decision: d, Attempt: 1, APIKeyID: keyID,
 			StatusCode: status, ErrorClass: class,
 			Usage:        usage.Load(),
 			FirstTokenMS: firstMS,

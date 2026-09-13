@@ -54,6 +54,11 @@ func (a *API) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/workspaces/refresh", a.handleRefreshWorkspaces)
 	mux.HandleFunc("POST /api/settings/default-workspace", a.handleDefaultWorkspace)
 	mux.HandleFunc("POST /api/settings/pricing", a.handlePricing)
+
+	mux.HandleFunc("GET /api/keys", a.handleListKeys)
+	mux.HandleFunc("POST /api/keys", a.handleCreateKey)
+	mux.HandleFunc("DELETE /api/keys/{id}", a.handleRevokeKey)
+	mux.HandleFunc("POST /api/settings/require-key", a.handleRequireKey)
 	return mux
 }
 

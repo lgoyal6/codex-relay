@@ -6,6 +6,7 @@ import { ApiError, api, boot, subscribeState } from "./api";
 import { Activity } from "./Activity";
 import { Overview } from "./Overview";
 import { Rules, blankRule } from "./Rules";
+import { Advanced } from "./Advanced";
 import { Settings } from "./Settings";
 import type { Theme } from "./Settings";
 import { Workspaces } from "./Workspaces";
@@ -15,10 +16,11 @@ import {
   IconLayers,
   IconList,
   IconSettings,
+  IconKey,
   IconShield,
 } from "./icons";
 
-type Tab = "overview" | "workspaces" | "rules" | "activity" | "settings";
+type Tab = "overview" | "workspaces" | "rules" | "activity" | "settings" | "advanced";
 
 const TABS: { id: Tab; label: string; icon: () => React.ReactElement }[] = [
   { id: "overview", label: "Overview", icon: () => <IconGauge className="ico-sm" /> },
@@ -26,6 +28,8 @@ const TABS: { id: Tab; label: string; icon: () => React.ReactElement }[] = [
   { id: "rules", label: "Rules", icon: () => <IconShield className="ico-sm" /> },
   { id: "activity", label: "Activity", icon: () => <IconList className="ico-sm" /> },
   { id: "settings", label: "Settings", icon: () => <IconSettings className="ico-sm" /> },
+  // Advanced is last and holds everything a single-user install never needs.
+  { id: "advanced", label: "Advanced", icon: () => <IconKey className="ico-sm" /> },
 ];
 
 /** BrandMark is the app's own glyph: three stacked layers, matching the Workspaces icon. */
@@ -269,6 +273,7 @@ export function App() {
         {tab === "rules" && <Rules state={state} reload={reload} draft={draft} setDraft={setDraft} />}
         {tab === "activity" && <Activity state={state} activity={activity} loading={loadingActivity} />}
         {tab === "settings" && <Settings state={state} theme={theme} setTheme={setTheme} />}
+        {tab === "advanced" && <Advanced />}
       </main>
     </div>
   );
