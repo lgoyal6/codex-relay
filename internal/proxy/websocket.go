@@ -138,7 +138,12 @@ func (p *Proxy) serveWebSocket(w http.ResponseWriter, r *http.Request, route Rou
 	// conversation that never ran a turn, and that binding would then constrain the fallback
 	// request. The dial itself carries no turn, so nothing is owed until frames flow.
 	if threadID != "" {
-		if err := p.opt.Selector.Claim(r.Context(), threadID, d.WorkspaceID); err != nil {
+		bind := p.opt.Selector.Claim
+		if d.Primary == policy.ReasonHandoff {
+			// The evaluator already decided this conversation moves; Claim would refuse it.
+			bind = p.opt.Selector.Reassign
+		}
+		if err := bind(r.Context(), threadID, d.WorkspaceID); err != nil {
 			record(http.StatusConflict, "ownership_conflict")
 			_ = down.Close(websocket.StatusPolicyViolation,
 				"this conversation is bound to another workspace")

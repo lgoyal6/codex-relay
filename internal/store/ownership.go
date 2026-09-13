@@ -168,3 +168,41 @@ func nullable(s string) any {
 	}
 	return s
 }
+
+// ReassignThread deliberately re-points a conversation at a different workspace.
+//
+// ClaimThread refuses this on purpose: an accidental re-bind is how a conversation ends up
+// split across accounts, and that guard is worth keeping. A handoff is the one case where the
+// move is intended, so it gets its own function rather than a flag that could be passed by
+// mistake. The previous owner is returned so the caller can record what moved and from where.
+func (d *DB) ReassignThread(ctx context.Context, threadID, workspaceID string, now time.Time) (previous string, err error) {
+	if threadID == "" || workspaceID == "" {
+		return "", fmt.Errorf("thread id and workspace id are required")
+	}
+	ts := now.UTC().Format(time.RFC3339Nano)
+
+	tx, err := d.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	_ = tx.QueryRowContext(ctx,
+		`SELECT workspace_id FROM thread_ownership WHERE thread_id = ?`, threadID).Scan(&previous)
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO thread_ownership (thread_id, workspace_id, first_seen_at, last_seen_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(thread_id) DO UPDATE SET
+			workspace_id = excluded.workspace_id,
+			last_seen_at = excluded.last_seen_at,
+			released_at = NULL,
+			release_reason = ''`,
+		threadID, workspaceID, ts, ts); err != nil {
+		return previous, fmt.Errorf("reassign thread: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return previous, err
+	}
+	return previous, nil
+}

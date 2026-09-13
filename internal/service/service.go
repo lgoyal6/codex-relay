@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
@@ -83,6 +84,19 @@ func (s *Service) OwnerOf(ctx context.Context, threadID string) (string, bool, e
 func (s *Service) Claim(ctx context.Context, threadID, workspaceID string) error {
 	_, err := s.DB.ClaimThread(ctx, threadID, workspaceID, s.Clock.Now())
 	return err
+}
+
+// Reassign re-points a conversation at a different workspace after a handoff decision.
+//
+// Only the handoff path calls this. Everything else goes through Claim, which still refuses
+// to move a conversation, so an accidental re-bind remains impossible.
+func (s *Service) Reassign(ctx context.Context, threadID, workspaceID string) error {
+	from, err := s.DB.ReassignThread(ctx, threadID, workspaceID, s.Clock.Now())
+	if err != nil {
+		return err
+	}
+	s.Log.Info("conversation handed off", "thread", threadID, "from", from, "to", workspaceID)
+	return nil
 }
 
 // Identity resolves a workspace into a usable credential.
@@ -263,6 +277,10 @@ func (s *Service) writeDecision(rec proxy.Record) error {
 	return err
 }
 
+// DefaultHandoffBelowPercent is the quota floor at which an owner-bound conversation moves
+// to another workspace rather than failing its next turn. Set the setting to 0 to disable.
+const DefaultHandoffBelowPercent = 2.0
+
 // Refresh rebuilds the routing snapshot from the database and publishes it atomically.
 func (s *Service) Refresh(ctx context.Context) error {
 	st := &policy.State{
@@ -349,6 +367,12 @@ func (s *Service) Refresh(ctx context.Context) error {
 		return err
 	}
 	st.DefaultWorkspaceID, _ = s.GetSetting(ctx, "default_workspace_id")
+	st.HandoffBelowPercent = DefaultHandoffBelowPercent
+	if v, _ := s.GetSetting(ctx, "handoff_below_percent"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			st.HandoffBelowPercent = f
+		}
+	}
 
 	s.Registry.Publish(st)
 	return nil

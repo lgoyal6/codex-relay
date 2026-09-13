@@ -24,6 +24,7 @@ const (
 	ReasonNoEligible         ReasonCode = "no_eligible_workspace"
 	ReasonReserveNoAlternate ReasonCode = "reserve_has_no_alternative"
 	ReasonQuotaExhausted     ReasonCode = "quota_exhausted"
+	ReasonHandoff            ReasonCode = "handed_off"
 )
 
 // Outcome is what the evaluator decided.
@@ -174,7 +175,20 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 	// Ownership beats preference. An owner-bound conversation stays where it is.
 	if req.OwnerWorkspaceID != "" {
 		owner := st.Workspaces[req.OwnerWorkspaceID]
-		if owner != nil && eligible[req.OwnerWorkspaceID] {
+
+		// An owner that is still eligible but nearly empty is handed off BEFORE the turn that
+		// would fail on it. Waiting for the hard refusal costs the user a failed turn first.
+		nearlyOut := false
+		if owner != nil && eligible[req.OwnerWorkspaceID] && st.HandoffBelowPercent > 0 {
+			if rem, known := lowestRemaining(st, owner, now); known && rem <= st.HandoffBelowPercent {
+				// Only worth moving if somewhere better exists; otherwise stay and spend what is left.
+				if alt := withoutWorkspace(rank(st, ids, eligible, preferOrder), req.OwnerWorkspaceID); len(alt) > 0 {
+					nearlyOut = true
+				}
+			}
+		}
+
+		if owner != nil && eligible[req.OwnerWorkspaceID] && !nearlyOut {
 			d.Outcome = OutcomeSelected
 			d.WorkspaceID = req.OwnerWorkspaceID
 			d.Primary = ReasonOwnerBound
@@ -184,7 +198,32 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 			d.Candidates = buildCandidates(st, ids, eligible, detail, details, []string{req.OwnerWorkspaceID})
 			return d
 		}
-		// Blocked owner: explain the constraint rather than migrating silently.
+		// The owner cannot serve, or is about to stop being able to. Moving the conversation
+		// is safe here in a way it would not be against a stateful API: this backend rejects
+		// store=true, so Codex resends the whole conversation on every turn and nothing lives
+		// server-side that is bound to the old account. Verified against the live endpoint.
+		//
+		// It is still gated, and it still obeys the rules: the replacement is drawn from the
+		// same eligibility set as any other pick, so a reserve rule cannot be side-stepped by
+		// a handoff.
+		if st.HandoffBelowPercent > 0 {
+			alt := rank(st, ids, eligible, preferOrder)
+			alt = withoutWorkspace(alt, req.OwnerWorkspaceID)
+			if len(alt) > 0 {
+				pick := alt[0]
+				to := st.Workspaces[pick]
+				d.Outcome = OutcomeSelected
+				d.WorkspaceID = pick
+				d.Primary = ReasonHandoff
+				d.Summary = fmt.Sprintf("%s can no longer serve this conversation, so it moved to %s. The full conversation is resent each turn, so nothing was lost.",
+					nameOf(st, req.OwnerWorkspaceID), to.Name)
+				d.Notes = append(d.Notes, Note{Code: ReasonHandoff, WorkspaceID: pick, Message: d.Summary})
+				d.Candidates = buildCandidates(st, ids, eligible, detail, details, alt)
+				return d
+			}
+		}
+
+		// Blocked owner with nowhere to go: explain the constraint rather than failing blankly.
 		d.Outcome = OutcomeBlocked
 		d.Primary = ReasonOwnerBlocked
 		name := req.OwnerWorkspaceID
@@ -370,4 +409,34 @@ func humanDuration(d time.Duration) string {
 		return fmt.Sprintf("%.1f days", h/24)
 	}
 	return fmt.Sprintf("%.1f hours", h)
+}
+
+// withoutWorkspace removes one id, so a handoff cannot pick the workspace it is leaving.
+func withoutWorkspace(ids []string, drop string) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id != drop {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// lowestRemaining is the tightest window the workspace reports, and whether it is knowable.
+//
+// The tightest window is the one that stops the next turn, so a workspace with 40% left on
+// the week and 1% left on the hour is at 1%. Evidence that is missing returns false: a
+// handoff fired on an unknown reading would move conversations for no reason.
+func lowestRemaining(st *State, ws *WorkspaceState, now time.Time) (float64, bool) {
+	lowest, found := 0.0, false
+	for minutes := range ws.Windows {
+		w, ev := st.EvidenceFor(ws, minutes, now)
+		if ev == EvidenceMissing {
+			continue
+		}
+		if r := w.RemainingPercent(); !found || r < lowest {
+			lowest, found = r, true
+		}
+	}
+	return lowest, found
 }

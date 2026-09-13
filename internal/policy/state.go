@@ -73,6 +73,10 @@ type State struct {
 	Rules              []Rule `json:"rules"`
 	// StaleAfter is how old a reading may be before it is labelled stale.
 	StaleAfter time.Duration `json:"stale_after"`
+	// HandoffBelowPercent moves an owner-bound conversation to another workspace once the
+	// owner has this little quota left, instead of letting the next turn fail. Zero disables
+	// handoff, and the conversation blocks on its owner as before.
+	HandoffBelowPercent float64 `json:"handoff_below_percent"`
 }
 
 // EvidenceFor classifies a workspace window at time now.

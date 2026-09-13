@@ -39,6 +39,8 @@ type Selector interface {
 	OwnerOf(ctx context.Context, threadID string) (string, bool, error)
 	// Claim binds a conversation to a workspace before account-bound state is exposed.
 	Claim(ctx context.Context, threadID, workspaceID string) error
+	// Reassign re-points a conversation after the evaluator decided to hand it off.
+	Reassign(ctx context.Context, threadID, workspaceID string) error
 	// ObserveQuota records rate-limit evidence seen on a real response.
 	ObserveQuota(ctx context.Context, workspaceID string, snaps []upstream.Snapshot)
 	// ObserveModels records the model catalog one identity reported. An empty list is

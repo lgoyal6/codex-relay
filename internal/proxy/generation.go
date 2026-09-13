@@ -57,7 +57,12 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 	// Persist ownership before exposing account-bound state. If this fails we do not
 	// proceed: an unrecorded binding is how conversations end up split across accounts.
 	if threadID != "" {
-		if err := p.opt.Selector.Claim(r.Context(), threadID, d.WorkspaceID); err != nil {
+		bind := p.opt.Selector.Claim
+		if d.Primary == policy.ReasonHandoff {
+			// The evaluator already decided this conversation moves; Claim would refuse it.
+			bind = p.opt.Selector.Reassign
+		}
+		if err := bind(r.Context(), threadID, d.WorkspaceID); err != nil {
 			p.opt.Selector.RecordDecision(Record{
 				At: started, ThreadID: threadID, Model: model, Decision: d,
 				Attempt: 1, StatusCode: http.StatusConflict, ErrorClass: "ownership_conflict",

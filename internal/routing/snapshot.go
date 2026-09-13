@@ -99,12 +99,13 @@ func (r *Registry) notify() {
 // Simulation must never reach live quota or ownership.
 func CloneForPreview(src *policy.State) *policy.State {
 	dst := &policy.State{
-		Version:            src.Version,
-		Order:              append([]string(nil), src.Order...),
-		DefaultWorkspaceID: src.DefaultWorkspaceID,
-		Rules:              append([]policy.Rule(nil), src.Rules...),
-		StaleAfter:         src.StaleAfter,
-		Workspaces:         make(map[string]*policy.WorkspaceState, len(src.Workspaces)),
+		Version:             src.Version,
+		Order:               append([]string(nil), src.Order...),
+		DefaultWorkspaceID:  src.DefaultWorkspaceID,
+		Rules:               append([]policy.Rule(nil), src.Rules...),
+		StaleAfter:          src.StaleAfter,
+		HandoffBelowPercent: src.HandoffBelowPercent,
+		Workspaces:          make(map[string]*policy.WorkspaceState, len(src.Workspaces)),
 	}
 	for id, ws := range src.Workspaces {
 		cp := *ws

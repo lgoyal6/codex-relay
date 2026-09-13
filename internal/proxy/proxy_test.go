@@ -18,18 +18,19 @@ import (
 )
 
 type fakeSelector struct {
-	mu       sync.Mutex
-	decision policy.Decision
-	identity Identity
-	idErr    error
-	owner    string
-	claims   []string
-	claimErr error
-	quota    []upstream.Snapshot
-	quotaWS  string
-	models   []string
-	modelsWS string
-	records  []Record
+	mu        sync.Mutex
+	decision  policy.Decision
+	identity  Identity
+	idErr     error
+	owner     string
+	claims    []string
+	reassigns []string
+	claimErr  error
+	quota     []upstream.Snapshot
+	quotaWS   string
+	models    []string
+	modelsWS  string
+	records   []Record
 }
 
 func (f *fakeSelector) Decide(context.Context, policy.Request) policy.Decision { return f.decision }
@@ -43,6 +44,14 @@ func (f *fakeSelector) Claim(_ context.Context, thread, ws string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.claims = append(f.claims, thread+"->"+ws)
+	return f.claimErr
+}
+
+// Reassign is recorded separately from Claim so a test can tell a handoff from a first bind.
+func (f *fakeSelector) Reassign(_ context.Context, thread, ws string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reassigns = append(f.reassigns, thread+"->"+ws)
 	return f.claimErr
 }
 func (f *fakeSelector) ObserveQuota(_ context.Context, ws string, s []upstream.Snapshot) {
