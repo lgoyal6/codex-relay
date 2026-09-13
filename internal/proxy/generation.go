@@ -30,7 +30,7 @@ const maxBufferedBody = 8 << 20 // 8 MiB
 func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 	started := p.opt.Clock.Now()
 	threadID := conversationID(r)
-	model := modelFromBody(r)
+	model, rawBody := modelFromBody(r)
 
 	owner, _, err := p.opt.Selector.OwnerOf(r.Context(), threadID)
 	if err != nil {
@@ -109,7 +109,32 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 		writeUpstreamError(w, err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { resp.Body.Close() }()
+
+	// A quota refusal is the one failure worth retrying, and this is the only place it is
+	// safe: the upstream answered, nothing has been written to the client yet, and the body
+	// is still in memory. Once a single byte has gone downstream a retry would duplicate
+	// output, which is why nothing below this point retries.
+	//
+	// The poller can be up to its interval out of date, so a workspace can read as healthy
+	// and still refuse. Upstream's answer wins over the stored reading.
+	attempt := 1
+	if resp.StatusCode == http.StatusTooManyRequests && rawBody != nil && threadID != "" {
+		retryDecision := p.opt.Selector.Decide(r.Context(), policy.Request{
+			Model:            model,
+			OwnerWorkspaceID: owner,
+			ThreadID:         threadID,
+			Exclude:          []string{d.WorkspaceID},
+		})
+		if retryDecision.Outcome == policy.OutcomeSelected && retryDecision.WorkspaceID != d.WorkspaceID {
+			if retried, ok := p.retryElsewhere(w, r, retryDecision, rawBody, started, threadID, model, resp); ok {
+				resp = retried
+				d = retryDecision
+				attempt = 2
+				defer func() { resp.Body.Close() }()
+			}
+		}
+	}
 
 	if snaps := upstream.ParseRateLimits(resp.Header); len(snaps) > 0 {
 		p.opt.Selector.ObserveQuota(r.Context(), id.WorkspaceID, snaps)
@@ -152,7 +177,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 
 	p.opt.Selector.RecordDecision(Record{
 		At: started, ThreadID: threadID, Model: model, Decision: d,
-		Attempt: 1, StatusCode: resp.StatusCode,
+		Attempt: attempt, StatusCode: resp.StatusCode,
 		FirstTokenMS: firstToken, TotalMS: total, Usage: usage,
 		ErrorClass: class,
 	})
@@ -254,15 +279,19 @@ func conversationID(r *http.Request) string {
 	return strings.TrimSpace(r.Header.Get("session-id"))
 }
 
-// modelFromBody reads the requested model so eligibility can be checked. The body is
-// restored afterwards so forwarding is unaffected.
-func modelFromBody(r *http.Request) string {
+// modelFromBody reads the requested model so eligibility can be checked, and returns the
+// buffered bytes. The body is restored afterwards so forwarding is unaffected.
+//
+// The bytes are returned because a quota refusal is retried on another workspace, and a retry
+// needs the same body again. Buffering already happened for the model read, so replay costs
+// nothing extra.
+func modelFromBody(r *http.Request) (string, []byte) {
 	if r.Body == nil || r.ContentLength > maxBufferedBody {
-		return ""
+		return "", nil
 	}
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxBufferedBody))
 	if err != nil {
-		return ""
+		return "", nil
 	}
 	_ = r.Body.Close()
 	r.Body = io.NopCloser(bytes.NewReader(raw))
@@ -272,9 +301,9 @@ func modelFromBody(r *http.Request) string {
 		Model string `json:"model"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
-		return ""
+		return "", raw
 	}
-	return body.Model
+	return body.Model, raw
 }
 
 func errorClassFor(status int) string {
@@ -289,4 +318,45 @@ func errorClassFor(status int) string {
 		return "request"
 	}
 	return ""
+}
+
+// retryElsewhere re-sends an unsent turn to a different workspace after a quota refusal.
+//
+// It returns the new response and true only when the retry actually produced one. On any
+// failure the caller keeps the original refusal, so the user sees upstream's real answer
+// rather than an error invented here.
+func (p *Proxy) retryElsewhere(
+	w http.ResponseWriter, r *http.Request, d policy.Decision, rawBody []byte,
+	started time.Time, threadID, model string, first *http.Response,
+) (*http.Response, bool) {
+	// Record the refusal that caused the move, so the history shows both halves.
+	p.opt.Selector.RecordDecision(Record{
+		At: started, ThreadID: threadID, Model: model, Decision: d,
+		Attempt: 1, StatusCode: first.StatusCode, ErrorClass: "quota",
+		TotalMS: p.opt.Clock.Now().Sub(started).Milliseconds(),
+	})
+
+	if err := p.opt.Selector.Reassign(r.Context(), threadID, d.WorkspaceID); err != nil {
+		p.opt.Logger.Warn("could not reassign after a quota refusal", "error", err)
+		return nil, false
+	}
+	id, err := p.opt.Selector.Identity(r.Context(), d.WorkspaceID)
+	if err != nil {
+		p.opt.Logger.Warn("no identity for the retry workspace", "error", err)
+		return nil, false
+	}
+
+	r.Body = io.NopCloser(bytes.NewReader(rawBody))
+	r.ContentLength = int64(len(rawBody))
+	req, err := p.buildUpstream(r, &id)
+	if err != nil {
+		return nil, false
+	}
+	resp, err := p.opt.HTTPClient.Do(req)
+	if err != nil {
+		p.opt.Logger.Warn("retry after quota refusal failed", "error", err)
+		return nil, false
+	}
+	first.Body.Close()
+	return resp, true
 }

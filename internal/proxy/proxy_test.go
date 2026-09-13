@@ -18,23 +18,33 @@ import (
 )
 
 type fakeSelector struct {
-	mu        sync.Mutex
-	decision  policy.Decision
-	identity  Identity
-	idErr     error
-	owner     string
-	claims    []string
-	reassigns []string
-	claimErr  error
-	quota     []upstream.Snapshot
-	quotaWS   string
-	models    []string
-	modelsWS  string
-	records   []Record
+	mu         sync.Mutex
+	decision   policy.Decision
+	identity   Identity
+	idErr      error
+	owner      string
+	claims     []string
+	reassigns  []string
+	decideFn   func(policy.Request) policy.Decision
+	identityFn func(string) (Identity, error)
+	claimErr   error
+	quota      []upstream.Snapshot
+	quotaWS    string
+	models     []string
+	modelsWS   string
+	records    []Record
 }
 
-func (f *fakeSelector) Decide(context.Context, policy.Request) policy.Decision { return f.decision }
-func (f *fakeSelector) Identity(context.Context, string) (Identity, error) {
+func (f *fakeSelector) Decide(_ context.Context, req policy.Request) policy.Decision {
+	if f.decideFn != nil {
+		return f.decideFn(req)
+	}
+	return f.decision
+}
+func (f *fakeSelector) Identity(_ context.Context, ws string) (Identity, error) {
+	if f.identityFn != nil {
+		return f.identityFn(ws)
+	}
 	return f.identity, f.idErr
 }
 func (f *fakeSelector) OwnerOf(context.Context, string) (string, bool, error) {

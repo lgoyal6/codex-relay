@@ -82,6 +82,10 @@ type Request struct {
 	// Owner-bound conversations do not migrate silently.
 	OwnerWorkspaceID string
 	ThreadID         string
+	// Exclude names workspaces this attempt must not pick, because they already refused this
+	// exact turn. A 429 is the case: the poll-based reading said there was room and upstream
+	// disagreed, so the reading is wrong and only the refusal is trustworthy.
+	Exclude []string
 }
 
 // Evaluate is the single decision function. Live admission and dashboard preview both call
@@ -133,6 +137,15 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 			}
 			eligible[id] = true
 			detail[id] = ReasonDefault
+		}
+	}
+
+	// A workspace that just refused this turn is out, whatever the stored reading claims.
+	for _, id := range req.Exclude {
+		if _, known := st.Workspaces[id]; known {
+			eligible[id] = false
+			detail[id] = ReasonQuotaExhausted
+			details[id] = "It refused this turn, so it is not retried for it."
 		}
 	}
 
