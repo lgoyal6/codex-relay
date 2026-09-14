@@ -656,3 +656,10 @@ pre.diag {
   border-color: color-mix(in oklch, var(--danger) 30%, transparent);
 }
 .callout.danger svg { color: var(--danger); }
+
+/* Reset countdown beside a quota ring's title. The percentage alone does not tell you
+   whether to wait or switch accounts; the time until it refills does. */
+.ring-reset {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; color: var(--muted-fg); white-space: nowrap;
+}

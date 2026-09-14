@@ -445,10 +445,21 @@ function StatTiles({ state }: { state: State }) {
  * rather than being forced into a five-hour and weekly pair.
  */
 function QuotaRings({ state }: { state: State }) {
-  const byWindow = new Map<number, { label: string; rows: { id: string; label: string; value: number; color: string }[] }>();
+  const now = new Date(state.now);
+  type Ring = {
+    label: string;
+    rows: { id: string; label: string; value: number; color: string }[];
+    // The soonest reset in this window: the one a person is actually waiting on.
+    resetsAt: string | null;
+    // Workspaces that do not report this window at all. A plan without a 5-hour limit simply
+    // has none, and saying so beats leaving someone to wonder why their account vanished.
+    absent: string[];
+  };
+  const byWindow = new Map<number, Ring>();
   state.workspaces.forEach((w, i) => {
     w.windows.forEach((win) => {
-      const g = byWindow.get(win.minutes) ?? { label: win.label, rows: [] };
+      const g: Ring = byWindow.get(win.minutes) ?? { label: win.label, rows: [], resetsAt: null, absent: [] };
+      if (win.resets_at && (!g.resetsAt || win.resets_at < g.resetsAt)) g.resetsAt = win.resets_at;
       g.rows.push({
         id: w.id,
         label: w.name,
@@ -456,6 +467,13 @@ function QuotaRings({ state }: { state: State }) {
         color: SERIES_COLORS[i % SERIES_COLORS.length],
       });
       byWindow.set(win.minutes, g);
+    });
+  });
+
+  // Who is missing from each window, now that every window is known.
+  byWindow.forEach((g, minutes) => {
+    state.workspaces.forEach((w) => {
+      if (!w.windows.some((win) => win.minutes === minutes)) g.absent.push(w.name);
     });
   });
 
@@ -474,14 +492,19 @@ function QuotaRings({ state }: { state: State }) {
                 <IconGauge className="ico-sm" />
                 {g.label} remaining
               </h2>
-            </div>
+                {g.resetsAt && (
+                  <span className="ring-reset">
+                    <IconClock className="ico-sm" /> resets {untilText(g.resetsAt, now)}
+                  </span>
+                )}
+              </div>
             <div className="card-body">
               <div className="donut-row">
                 <Donut
                   segments={g.rows}
                   total={total}
                   centerValue={`${Math.round(left / g.rows.length)}%`}
-                  centerLabel="avg left"
+                  centerLabel={g.rows.length === 1 ? "left" : "avg left"}
                 />
                 <Legend segments={g.rows} suffix="%" />
               </div>
@@ -489,6 +512,14 @@ function QuotaRings({ state }: { state: State }) {
                 Each ring segment is one workspace's own remaining percentage. These are not
                 added together: separate plans are separate allowances, and a combined total
                 would not mean anything.
+                {g.absent.length > 0 && (
+                  <>
+                    {" "}
+                    {g.absent.join(" and ")} {g.absent.length === 1 ? "is" : "are"} not shown here
+                    because {g.absent.length === 1 ? "its plan does" : "their plans do"} not report
+                    a {g.label} limit.
+                  </>
+                )}
               </p>
             </div>
           </section>

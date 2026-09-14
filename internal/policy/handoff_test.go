@@ -108,3 +108,56 @@ func TestUnknownQuotaDoesNotTriggerHandoff(t *testing.T) {
 		t.Fatalf("handed off on unknown evidence to %s", d.WorkspaceID)
 	}
 }
+
+// A workspace with nothing left must stop being selected, even when a rule prefers it.
+//
+// This is the defect found in real use: eligibility considered only pause, credential and
+// model, so a preferred workspace sitting at 100% used kept taking new conversations and
+// every one of them failed upstream. The router has to know it is empty BEFORE spending a
+// turn to find out.
+func TestExhaustedWorkspaceIsNotSelectedEvenWhenPreferred(t *testing.T) {
+	st := handoffState(100, 2) // personal fully used
+	st.Rules = []Rule{{ID: "p", Kind: KindPrefer, Enabled: true, SourceWorkspaceID: "personal"}}
+
+	d := Evaluate(st, Request{}, base)
+	if d.WorkspaceID == "personal" {
+		t.Fatalf("selected an exhausted workspace because a rule preferred it (%s)", d.Primary)
+	}
+	if d.WorkspaceID != "work" {
+		t.Fatalf("selected %q, want the workspace that still has quota", d.WorkspaceID)
+	}
+}
+
+// With EVERY workspace empty, one is still selected rather than blocked.
+//
+// Refusing here would hand the user nothing; trying at least surfaces upstream's own answer,
+// and the reading may be stale or the window may have just rolled over. This is the same
+// judgement a reserve rule makes when it falls back to the workspace it was protecting.
+func TestAllWorkspacesExhaustedStillServesRatherThanBlocking(t *testing.T) {
+	st := handoffState(100, 2)
+	st.Workspaces["work"].Windows[300] = Window{
+		Minutes: 100, UsedPercent: 100, ObservedAt: base,
+		ResetsAt: st.Workspaces["personal"].Windows[300].ResetsAt,
+	}
+	st.Workspaces["work"].Windows[300] = Window{
+		Minutes: 300, UsedPercent: 100, ObservedAt: base,
+		ResetsAt: st.Workspaces["personal"].Windows[300].ResetsAt,
+	}
+	d := Evaluate(st, Request{}, base)
+	if d.Outcome != OutcomeSelected {
+		t.Fatalf("outcome = %v, want a last-resort selection rather than a refusal", d.Outcome)
+	}
+}
+
+// Unknown quota is not exhaustion. Excluding a workspace we simply have not observed would
+// strand it, which is worse than trying it.
+func TestUnknownQuotaIsNotTreatedAsExhausted(t *testing.T) {
+	st := handoffState(100, 2)
+	st.Workspaces["personal"].Windows = map[int64]Window{} // no readings at all
+	st.Rules = []Rule{{ID: "p", Kind: KindPrefer, Enabled: true, SourceWorkspaceID: "personal"}}
+
+	d := Evaluate(st, Request{}, base)
+	if d.WorkspaceID != "personal" {
+		t.Fatalf("an unobserved workspace was excluded as if it were empty (got %q)", d.WorkspaceID)
+	}
+}

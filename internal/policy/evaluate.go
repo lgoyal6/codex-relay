@@ -140,6 +140,38 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 		}
 	}
 
+	// Quota exhaustion, applied only when somewhere else can actually serve.
+	//
+	// Until this existed, eligibility considered only pause, credential and model, so a
+	// preferred workspace sitting at 100% used kept taking new conversations and every one
+	// failed upstream. Observed live.
+	//
+	// It is a second pass, not another case above, because a workspace that is empty AND
+	// alone must still be tried: blocking pre-emptively gives the user nothing, while trying
+	// at least surfaces upstream's own answer. The same reason a reserve rule can fall back
+	// to the workspace it protects.
+	empty := map[string]bool{}
+	haveAlternative := false
+	for _, id := range ids {
+		ws := st.Workspaces[id]
+		if ws == nil || !eligible[id] {
+			continue
+		}
+		if exhausted(st, ws, now) {
+			empty[id] = true
+		} else {
+			haveAlternative = true
+		}
+	}
+	if haveAlternative {
+		for id := range empty {
+			rem, _ := lowestRemaining(st, st.Workspaces[id], now)
+			eligible[id] = false
+			detail[id] = ReasonQuotaExhausted
+			details[id] = fmt.Sprintf("Out of quota: %s remaining on its tightest window.", formatPct(rem))
+		}
+	}
+
 	// A workspace that just refused this turn is out, whatever the stored reading claims.
 	for _, id := range req.Exclude {
 		if _, known := st.Workspaces[id]; known {
@@ -452,4 +484,18 @@ func lowestRemaining(st *State, ws *WorkspaceState, now time.Time) (float64, boo
 		}
 	}
 	return lowest, found
+}
+
+// exhausted reports whether a workspace has run its tightest window down to the handoff
+// floor, using only evidence we actually have.
+//
+// The same threshold governs handoff, so a conversation is moved off a workspace at exactly
+// the point new conversations stop being sent to it. Two different numbers here would mean a
+// workspace could be too empty to start on but not empty enough to leave.
+func exhausted(st *State, ws *WorkspaceState, now time.Time) bool {
+	if st.HandoffBelowPercent <= 0 {
+		return false
+	}
+	rem, known := lowestRemaining(st, ws, now)
+	return known && rem <= st.HandoffBelowPercent
 }
