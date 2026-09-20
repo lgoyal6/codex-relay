@@ -19,7 +19,11 @@ export type ReasonCode =
   | "handed_off"
   | "no_eligible_workspace"
   | "reserve_has_no_alternative"
-  | "quota_exhausted";
+  | "quota_exhausted"
+  | "preferred_by_profile"
+  | "disabled_by_profile"
+  | "weekly_pace"
+  | "pace_overflow";
 
 export interface Note {
   code: ReasonCode;
@@ -101,6 +105,39 @@ export interface RuleView extends Rule {
   sentence: string;
 }
 
+export type ProfileMode = "priority" | "pace";
+
+export interface RoutingProfile {
+  id: string;
+  name: string;
+  command: string;
+  aliases: string[];
+  mode: ProfileMode;
+  priority_workspace_ids: string[];
+  pace_workspace_ids: string[];
+  overflow_workspace_id?: string;
+  target_remaining_percent: number;
+  default_workspace_id?: string;
+  handoff_below_percent: number;
+  disabled_workspace_ids: string[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ProfileView extends RoutingProfile {
+  active: boolean;
+  sentence: string;
+}
+
+export interface PaceStanding {
+  workspace_id: string;
+  remaining_percent: number;
+  expected_percent: number;
+  delta_percent: number;
+  known: boolean;
+  status: string;
+}
+
 export interface Problem {
   kind: string;
   workspace_id?: string;
@@ -130,6 +167,9 @@ export interface State {
   summary: Summary;
   projections: Projection[];
   pool_totals: PoolTotal[];
+  profiles: ProfileView[];
+  active_profile_id?: string;
+  pace_standings: PaceStanding[];
 }
 
 export interface Summary {
@@ -399,6 +439,21 @@ export const api = {
     call<{ decision: Decision; simulated: boolean; state_version: number; evaluated_at: string }>(
       "/api/rules/preview",
       { method: "POST", body: JSON.stringify({ rules, model, scenarios }) },
+    ),
+
+  saveProfile: (profile: RoutingProfile) =>
+    call<{ profile: RoutingProfile }>("/api/profiles", {
+      method: "POST",
+      body: JSON.stringify(profile),
+    }),
+  deleteProfile: (id: string) =>
+    call<{ deleted: boolean }>(`/api/profiles/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
+  activateProfile: (command: string) =>
+    call<{ profile: RoutingProfile; decision: Decision }>(
+      `/api/profiles/${encodeURIComponent(command)}/activate`,
+      { method: "POST" },
     ),
 
   connect: () => call<{ auth_url: string; flow_id: string }>("/api/workspaces/connect", { method: "POST" }),
