@@ -6,6 +6,7 @@ import { ApiError, api, boot, subscribeState } from "./api";
 import { Activity } from "./Activity";
 import { Overview } from "./Overview";
 import { Rules, blankRule } from "./Rules";
+import { Profiles } from "./Profiles";
 import { Advanced } from "./Advanced";
 import { Settings } from "./Settings";
 import type { Theme } from "./Settings";
@@ -20,11 +21,12 @@ import {
   IconShield,
 } from "./icons";
 
-type Tab = "overview" | "workspaces" | "rules" | "activity" | "settings" | "advanced";
+type Tab = "overview" | "workspaces" | "profiles" | "rules" | "activity" | "settings" | "advanced";
 
 const TABS: { id: Tab; label: string; icon: () => React.ReactElement }[] = [
   { id: "overview", label: "Overview", icon: () => <IconGauge className="ico-sm" /> },
   { id: "workspaces", label: "Workspaces", icon: () => <IconLayers className="ico-sm" /> },
+  { id: "profiles", label: "Profiles", icon: () => <IconList className="ico-sm" /> },
   { id: "rules", label: "Rules", icon: () => <IconShield className="ico-sm" /> },
   { id: "activity", label: "Activity", icon: () => <IconList className="ico-sm" /> },
   { id: "settings", label: "Settings", icon: () => <IconSettings className="ico-sm" /> },
@@ -279,6 +281,7 @@ export function App() {
           />
         )}
         {tab === "rules" && <Rules state={state} reload={reload} draft={draft} setDraft={setDraft} />}
+        {tab === "profiles" && <Profiles state={state} reload={reload} />}
         {tab === "activity" && (
           <Activity state={state} activity={activity} models={models} loading={loadingActivity} />
         )}
