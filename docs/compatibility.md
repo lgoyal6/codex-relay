@@ -270,9 +270,9 @@ must carry either `base_instructions` or `model_messages.instructions_template`.
 itself is tolerant here - it records whatever slugs it can parse and passes the bytes through
 unchanged - but a test harness that omits these fields is quietly unrepresentative.
 
-## What is NOT verified
+## Verification status
 
-These are open dependencies, not oversights.
+This table separates live, CI, simulated and unverified evidence.
 
 | Area | Status |
 |---|---|
@@ -280,8 +280,8 @@ These are open dependencies, not oversights.
 | Live refresh-token rotation against the real issuer | **unverified.** Rotation, per-chain serialization and persistence of the rotated token are covered against a fake issuer (simulated). |
 | Real `chatgpt.com` behaviour for compaction, tool calls, file uploads and resume under pooling | **unverified.** |
 | Codex Desktop generation routing | **live.** The bundled client has sent real turns through codex-relay on this host. Account-bound MCP file upload behavior remains unverified. |
-| Windows credential storage and installation | **unverified.** The binary cross-compiles; that is not evidence the credential store works. |
-| Linux Secret Service storage and installation | **unverified.** Same. |
+| Windows credential storage and installation | **Credential storage CI-verified.** A GitHub-hosted `windows-latest` runner completed a real Credential Manager write, read and delete. Archive installation remains unverified. |
+| Linux Secret Service storage and installation | **Credential storage CI-verified.** A GitHub-hosted `ubuntu-latest` runner completed a real write, read and delete through gnome-keyring in a D-Bus session. Archive installation and integration with a user's desktop keyring remain unverified. |
 | Windows native versus WSL | **unverified.** A Codex installed inside WSL has its own `~/.codex` and must be configured from inside WSL. `codexrelay doctor` says so on Windows, but this has not been tested. |
 | Agent Identity behind a loopback base URL | **unverified, and known to be at risk.** The client accepts only chatgpt.com, chat.openai.com and chatgpt-staging.com when deriving an agent identity environment (source), so enabling that feature behind a loopback base URL would fail. It did not block any turn in these runs. |
 | Usability with real users | **unverified.** No external testers were available. |

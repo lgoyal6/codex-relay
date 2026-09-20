@@ -54,8 +54,7 @@ result.
 Six targets compile. That is evidence about the compiler, not about the platform.
 
 - **macOS**: run, verified live, including Keychain.
-- **Linux**: archives built, but not executed on a Linux host. Secret Service credential
-  storage and installation remain unverified.
-- **Windows**: **never executed.** No Windows machine has been reachable from this build. The
-  binary compiles and nothing more is claimed. `docs/compatibility.md` lists exactly what a
-  Windows run would need to answer.
+- **Linux**: archives built but not installed or executed. A GitHub-hosted Ubuntu job verifies
+  a real Secret Service write, read and delete through gnome-keyring in a D-Bus session.
+- **Windows**: archives built but not installed or executed. A GitHub-hosted Windows job
+  verifies a real Credential Manager write, read and delete. WSL behavior remains unverified.
