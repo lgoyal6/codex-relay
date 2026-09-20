@@ -1,7 +1,7 @@
 // App shell: tabs, live state, and the connect flow that several screens share.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ActivityRow, LiveStatus, Rule, State } from "./api";
+import type { ActivityRow, LiveStatus, ModelReportRow, Rule, State } from "./api";
 import { ApiError, api, boot, subscribeState } from "./api";
 import { Activity } from "./Activity";
 import { Overview } from "./Overview";
@@ -49,6 +49,7 @@ function readTheme(): Theme {
 export function App() {
   const [state, setState] = useState<State | null>(null);
   const [activity, setActivity] = useState<ActivityRow[]>([]);
+  const [models, setModels] = useState<ModelReportRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [live, setLive] = useState<LiveStatus>("connecting");
   const [tab, setTab] = useState<Tab>("overview");
@@ -87,6 +88,12 @@ export function App() {
         // Activity is supplementary. A failure here must not blank the whole page.
       })
       .finally(() => setLoadingActivity(false));
+    api
+      .models()
+      .then((r) => setModels(r.models))
+      .catch(() => {
+        // Model performance is supplementary. A failure must not blank the dashboard.
+      });
   }, []);
 
   useEffect(() => {
@@ -272,7 +279,9 @@ export function App() {
           />
         )}
         {tab === "rules" && <Rules state={state} reload={reload} draft={draft} setDraft={setDraft} />}
-        {tab === "activity" && <Activity state={state} activity={activity} loading={loadingActivity} />}
+        {tab === "activity" && (
+          <Activity state={state} activity={activity} models={models} loading={loadingActivity} />
+        )}
         {tab === "settings" && <Settings state={state} theme={theme} setTheme={setTheme} />}
         {tab === "advanced" && <Advanced state={state} />}
       </main>

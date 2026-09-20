@@ -92,6 +92,28 @@ type Record struct {
 	// FirstTokenMS from, because after the upgrade the model still has to start
 	// generating. It answers "was upstream slow to accept this", nothing more.
 	UpstreamMS int64
+
+	// QuotaSnapshot is captured synchronously when the record is enqueued. The audit writer
+	// runs later, so consulting live state there would attach a newer reading to an older turn.
+	QuotaSnapshot *QuotaSnapshot
+}
+
+// QuotaSnapshot is the routing evidence visible for the selected workspace at one turn.
+// A non-nil snapshot with no windows means capture ran but upstream had reported no usable
+// windows. nil is reserved for historical rows written before snapshots existed.
+type QuotaSnapshot struct {
+	CapturedAt  time.Time             `json:"captured_at"`
+	WorkspaceID string                `json:"workspace_id"`
+	Windows     []QuotaWindowSnapshot `json:"windows"`
+}
+
+type QuotaWindowSnapshot struct {
+	Minutes          int64           `json:"minutes"`
+	Label            string          `json:"label"`
+	RemainingPercent float64         `json:"remaining_percent"`
+	ResetsAt         *time.Time      `json:"resets_at"`
+	ObservedAt       time.Time       `json:"observed_at"`
+	Evidence         policy.Evidence `json:"evidence"`
 }
 
 // Options configures the proxy.

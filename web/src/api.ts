@@ -201,6 +201,9 @@ export interface ActivityRow {
   model?: string;
   outcome: string;
   workspace_id?: string;
+  workspace_name?: string;
+  account_email?: string;
+  account_plan?: string;
   reason: ReasonCode;
   summary: string;
   notes: Note[];
@@ -216,6 +219,40 @@ export interface ActivityRow {
   cached_input_tokens: number | null;
   output_tokens: number | null;
   total_tokens: number | null;
+  error_message?: string;
+  failure_phase?: string;
+  upstream_status?: number;
+  transport?: string;
+  upstream_ms: number | null;
+  output_tokens_per_second: number | null;
+  quota_snapshot: QuotaSnapshot | null;
+}
+
+export interface QuotaSnapshot {
+  captured_at: string;
+  workspace_id: string;
+  windows: QuotaWindowSnapshot[];
+}
+
+export interface QuotaWindowSnapshot {
+  minutes: number;
+  label: string;
+  remaining_percent: number;
+  resets_at: string | null;
+  observed_at: string;
+  evidence: Evidence;
+}
+
+export interface ModelReportRow {
+  model: string;
+  turns: number;
+  turns_with_usage: number;
+  input_tokens: number;
+  cached_input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  median_first_token_ms: number | null;
+  output_tokens_per_second: number | null;
 }
 
 export interface Scenario {
@@ -325,9 +362,28 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+async function download(path: string): Promise<Blob> {
+  let resp: Response;
+  try {
+    resp = await fetch(path, {
+      headers: { "X-Codex-Pool-Token": boot.token },
+      cache: "no-store",
+    });
+  } catch {
+    throw new ApiError(0, "The codex-relay service is not responding. It may have stopped.");
+  }
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new ApiError(resp.status, text || `Request failed with status ${resp.status}`);
+  }
+  return resp.blob();
+}
+
 export const api = {
   state: () => call<State>("/api/state"),
   activity: (limit = 100) => call<{ activity: ActivityRow[] }>(`/api/activity?limit=${limit}`),
+  activityCSV: () => download("/api/activity.csv"),
+  models: () => call<{ models: ModelReportRow[]; retained_decisions: number }>("/api/models"),
   diagnostics: () => call<Record<string, unknown>>("/api/diagnostics"),
 
   saveRule: (rule: Rule) =>

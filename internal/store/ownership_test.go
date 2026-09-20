@@ -228,6 +228,7 @@ func TestSchemaHasEveryExpectedColumn(t *testing.T) {
 			"detail_json", "state_version", "attempt", "status_code", "first_token_ms",
 			"total_ms", "error_class",
 			"input_tokens", "cached_input_tokens", "output_tokens", "total_tokens",
+			"quota_snapshot_json",
 		},
 		"workspaces":          {"id", "account_id", "chatgpt_account_id", "display_name", "credential_ref", "credential_ok", "paused"},
 		"quota_windows":       {"workspace_id", "limit_id", "window_minutes", "used_percent", "resets_at", "observed_at"},
