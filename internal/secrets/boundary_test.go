@@ -12,10 +12,7 @@ import (
 // silently is the worst failure this package has, so the boundary is swept rather than
 // sampled: every offset where a 3-byte rune can straddle the chunk edge.
 func TestMultiByteRunesStraddlingAChunkBoundaryRoundTrip(t *testing.T) {
-	s := NewOS()
-	if h := s.Probe(); !h.OK {
-		t.Skipf("credential store unavailable here: %s", h.Detail)
-	}
+	s := requireOSStore(t)
 	const ref = "utf8-boundary-test"
 	t.Cleanup(func() { _ = s.Delete(ref) })
 
@@ -63,10 +60,7 @@ func TestSplitIsLosslessAtEveryLengthNearTheBoundary(t *testing.T) {
 // The manifest and a real credential share a key, so the only thing separating them is the
 // prefix; a value that imitates it is the obvious confusion.
 func TestCredentialThatLooksLikeAManifestIsNotMisread(t *testing.T) {
-	s := NewOS()
-	if h := s.Probe(); !h.OK {
-		t.Skipf("credential store unavailable here: %s", h.Detail)
-	}
+	s := requireOSStore(t)
 	const ref = "manifest-lookalike-test"
 	t.Cleanup(func() { _ = s.Delete(ref) })
 
