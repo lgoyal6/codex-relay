@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -22,6 +23,76 @@ func (a *API) handleActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"activity": rows})
+}
+
+func (a *API) handleModels(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.Svc.ModelReport(r.Context())
+	if err != nil {
+		writeErr(w, 500, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"models": rows, "retained_decisions": 2000})
+}
+
+func (a *API) handleActivityCSV(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.Svc.Activity(r.Context(), 2000)
+	if err != nil {
+		writeErr(w, 500, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="codexrelay-activity.csv"`)
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+
+	cw := csv.NewWriter(w)
+	header := []string{
+		"time", "thread_id", "workspace_id", "workspace_name", "account_email", "plan",
+		"outcome", "reason", "model", "attempt", "http_status", "upstream_status",
+		"error_class", "failure_phase", "transport", "input_tokens", "cached_input_tokens",
+		"output_tokens", "total_tokens", "first_token_ms", "total_ms", "upstream_ms",
+		"output_tokens_per_second", "quota_snapshot_json", "summary", "error_message",
+	}
+	_ = cw.Write(header)
+	for _, row := range rows {
+		quota := "not recorded"
+		if row.QuotaSnapshot != nil {
+			if raw, err := json.Marshal(row.QuotaSnapshot); err == nil {
+				quota = string(raw)
+			}
+		}
+		_ = cw.Write([]string{
+			row.At.Format(time.RFC3339Nano), row.ThreadID, row.WorkspaceID, row.WorkspaceName,
+			row.AccountEmail, row.AccountPlan, row.Outcome, row.Reason, row.Model,
+			strconv.Itoa(row.Attempt), csvOptionalInt(row.StatusCode), csvOptionalInt(row.UpstreamStatus),
+			row.ErrorClass, row.FailurePhase, row.Transport, csvInt64(row.InputTokens),
+			csvInt64(row.CachedInputTokens), csvInt64(row.OutputTokens), csvInt64(row.TotalTokens),
+			csvInt64(row.FirstTokenMS), csvInt64(row.TotalMS), csvInt64(row.UpstreamMS),
+			csvFloat64(row.OutputTokensPerSecond), quota, row.Summary, row.ErrorMessage,
+		})
+	}
+	cw.Flush()
+}
+
+func csvOptionalInt(v int) string {
+	if v == 0 {
+		return ""
+	}
+	return strconv.Itoa(v)
+}
+
+func csvInt64(v *int64) string {
+	if v == nil {
+		return ""
+	}
+	return strconv.FormatInt(*v, 10)
+}
+
+func csvFloat64(v *float64) string {
+	if v == nil {
+		return ""
+	}
+	return strconv.FormatFloat(*v, 'f', -1, 64)
 }
 
 // handleEvents is the local event stream that keeps the dashboard live.

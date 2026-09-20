@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/lgoyal6/codex-relay/internal/policy"
+	"github.com/lgoyal6/codex-relay/internal/proxy"
 	"github.com/lgoyal6/codex-relay/internal/routing"
 )
 
@@ -187,18 +189,21 @@ func (s *Service) Preview(ctx context.Context, rules []policy.Rule, model string
 // --- activity ---
 
 type ActivityRow struct {
-	ID          int64              `json:"id"`
-	At          time.Time          `json:"at"`
-	ThreadID    string             `json:"thread_id,omitempty"`
-	Model       string             `json:"model,omitempty"`
-	Outcome     string             `json:"outcome"`
-	WorkspaceID string             `json:"workspace_id,omitempty"`
-	Reason      string             `json:"reason"`
-	Summary     string             `json:"summary"`
-	Notes       []policy.Note      `json:"notes"`
-	Candidates  []policy.Candidate `json:"candidates"`
-	Attempt     int                `json:"attempt"`
-	StatusCode  int                `json:"status_code,omitempty"`
+	ID            int64              `json:"id"`
+	At            time.Time          `json:"at"`
+	ThreadID      string             `json:"thread_id,omitempty"`
+	Model         string             `json:"model,omitempty"`
+	Outcome       string             `json:"outcome"`
+	WorkspaceID   string             `json:"workspace_id,omitempty"`
+	WorkspaceName string             `json:"workspace_name,omitempty"`
+	AccountEmail  string             `json:"account_email,omitempty"`
+	AccountPlan   string             `json:"account_plan,omitempty"`
+	Reason        string             `json:"reason"`
+	Summary       string             `json:"summary"`
+	Notes         []policy.Note      `json:"notes"`
+	Candidates    []policy.Candidate `json:"candidates"`
+	Attempt       int                `json:"attempt"`
+	StatusCode    int                `json:"status_code,omitempty"`
 	// Pointers, not omitempty: a turn whose first token arrived in under a millisecond is a
 	// real 0 ms measurement, and `omitempty` silently dropped it so the dashboard could not
 	// tell it from "never measured". null means not measured; 0 means measured as zero.
@@ -226,18 +231,28 @@ type ActivityRow struct {
 	// upgrade on WebSocket. Subtracting it from FirstTokenMS does NOT give the relay's
 	// own cost, because the model starts generating only after that point.
 	UpstreamMS *int64 `json:"upstream_ms"`
+	// OutputTokensPerSecond is measured only over the interval after first token. It remains
+	// null unless both timings and output usage were reported.
+	OutputTokensPerSecond *float64             `json:"output_tokens_per_second"`
+	QuotaSnapshot         *proxy.QuotaSnapshot `json:"quota_snapshot"`
 }
 
 func (s *Service) Activity(ctx context.Context, limit int) ([]ActivityRow, error) {
-	if limit <= 0 || limit > 500 {
+	if limit <= 0 || limit > historyLimit {
 		limit = 100
 	}
 	rows, err := s.DB.SQL().QueryContext(ctx, `
-		SELECT id, at, thread_id, model, outcome, workspace_id, primary_reason, summary,
-		       detail_json, attempt, status_code, first_token_ms, total_ms, error_class,
-		       input_tokens, cached_input_tokens, output_tokens, total_tokens,
-		       error_message, failure_phase, upstream_status, transport, upstream_ms
-		FROM decisions ORDER BY id DESC LIMIT ?`, limit)
+		SELECT d.id, d.at, d.thread_id, d.model, d.outcome, d.workspace_id,
+		       w.display_name, a.email, a.plan_type,
+		       d.primary_reason, d.summary, d.detail_json, d.attempt, d.status_code,
+		       d.first_token_ms, d.total_ms, d.error_class,
+		       d.input_tokens, d.cached_input_tokens, d.output_tokens, d.total_tokens,
+		       d.error_message, d.failure_phase, d.upstream_status, d.transport, d.upstream_ms,
+		       d.quota_snapshot_json
+		FROM decisions d
+		LEFT JOIN workspaces w ON w.id = d.workspace_id
+		LEFT JOIN accounts a ON a.id = w.account_id
+		ORDER BY d.id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -246,12 +261,13 @@ func (s *Service) Activity(ctx context.Context, limit int) ([]ActivityRow, error
 	for rows.Next() {
 		var r ActivityRow
 		var at, detail string
-		var thread, model, ws, errClass, errMsg, phase, transport sql.NullString
+		var thread, model, ws, wsName, email, plan, errClass, errMsg, phase, transport, quotaJSON sql.NullString
 		var status, first, total, input, cached, output, tokens, upStatus, upMS sql.NullInt64
-		if err := rows.Scan(&r.ID, &at, &thread, &model, &r.Outcome, &ws, &r.Reason, &r.Summary,
+		if err := rows.Scan(&r.ID, &at, &thread, &model, &r.Outcome, &ws,
+			&wsName, &email, &plan, &r.Reason, &r.Summary,
 			&detail, &r.Attempt, &status, &first, &total, &errClass,
 			&input, &cached, &output, &tokens,
-			&errMsg, &phase, &upStatus, &transport, &upMS); err != nil {
+			&errMsg, &phase, &upStatus, &transport, &upMS, &quotaJSON); err != nil {
 			return nil, err
 		}
 		r.ErrorMessage, r.FailurePhase, r.Transport = errMsg.String, phase.String, transport.String
@@ -262,6 +278,7 @@ func (s *Service) Activity(ctx context.Context, limit int) ([]ActivityRow, error
 		}
 		r.At, _ = time.Parse(time.RFC3339Nano, at)
 		r.ThreadID, r.Model, r.WorkspaceID, r.ErrorClass = thread.String, model.String, ws.String, errClass.String
+		r.WorkspaceName, r.AccountEmail, r.AccountPlan = wsName.String, email.String, plan.String
 		r.StatusCode = int(status.Int64)
 		if first.Valid {
 			v := first.Int64
@@ -287,6 +304,19 @@ func (s *Service) Activity(ctx context.Context, limit int) ([]ActivityRow, error
 			v := tokens.Int64
 			r.TotalTokens = &v
 		}
+		if output.Valid && first.Valid && total.Valid && total.Int64 > first.Int64 {
+			v := float64(output.Int64) / (float64(total.Int64-first.Int64) / 1000)
+			r.OutputTokensPerSecond = &v
+		}
+		if quotaJSON.Valid {
+			var snapshot proxy.QuotaSnapshot
+			if json.Unmarshal([]byte(quotaJSON.String), &snapshot) == nil {
+				if snapshot.Windows == nil {
+					snapshot.Windows = []proxy.QuotaWindowSnapshot{}
+				}
+				r.QuotaSnapshot = &snapshot
+			}
+		}
 		var d struct {
 			Notes      []policy.Note      `json:"notes"`
 			Candidates []policy.Candidate `json:"candidates"`
@@ -306,4 +336,90 @@ func (s *Service) Activity(ctx context.Context, limit int) ([]ActivityRow, error
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+type ModelReportRow struct {
+	Model                  string   `json:"model"`
+	Turns                  int      `json:"turns"`
+	TurnsWithUsage         int      `json:"turns_with_usage"`
+	InputTokens            int64    `json:"input_tokens"`
+	CachedInputTokens      int64    `json:"cached_input_tokens"`
+	OutputTokens           int64    `json:"output_tokens"`
+	TotalTokens            int64    `json:"total_tokens"`
+	MedianFirstTokenMS     *float64 `json:"median_first_token_ms"`
+	OutputTokensPerSecond  *float64 `json:"output_tokens_per_second"`
+	firstTokenMeasurements []float64
+	generationSeconds      float64
+	measuredOutputTokens   int64
+}
+
+// ModelReport summarizes completed served turns across all retained decision rows. Errors,
+// cancellations, and blocked decisions do not become performance data.
+func (s *Service) ModelReport(ctx context.Context) ([]ModelReportRow, error) {
+	activity, err := s.Activity(ctx, historyLimit)
+	if err != nil {
+		return nil, err
+	}
+	byModel := map[string]*ModelReportRow{}
+	for _, row := range activity {
+		if row.Outcome != string(policy.OutcomeSelected) || row.ErrorClass != "" || row.StatusCode >= 400 {
+			continue
+		}
+		model := row.Model
+		if model == "" {
+			model = "unknown"
+		}
+		r := byModel[model]
+		if r == nil {
+			r = &ModelReportRow{Model: model}
+			byModel[model] = r
+		}
+		r.Turns++
+		if row.FirstTokenMS != nil {
+			r.firstTokenMeasurements = append(r.firstTokenMeasurements, float64(*row.FirstTokenMS))
+		}
+		if row.TotalTokens != nil {
+			r.TurnsWithUsage++
+		}
+		if row.InputTokens != nil {
+			r.InputTokens += *row.InputTokens
+		}
+		if row.CachedInputTokens != nil {
+			r.CachedInputTokens += *row.CachedInputTokens
+		}
+		if row.OutputTokens != nil {
+			r.OutputTokens += *row.OutputTokens
+		}
+		if row.TotalTokens != nil {
+			r.TotalTokens += *row.TotalTokens
+		}
+		if row.OutputTokens != nil && row.FirstTokenMS != nil && row.TotalMS != nil && *row.TotalMS > *row.FirstTokenMS {
+			r.measuredOutputTokens += *row.OutputTokens
+			r.generationSeconds += float64(*row.TotalMS-*row.FirstTokenMS) / 1000
+		}
+	}
+	out := make([]ModelReportRow, 0, len(byModel))
+	for _, row := range byModel {
+		sort.Float64s(row.firstTokenMeasurements)
+		if n := len(row.firstTokenMeasurements); n > 0 {
+			median := row.firstTokenMeasurements[n/2]
+			if n%2 == 0 {
+				median = (row.firstTokenMeasurements[n/2-1] + median) / 2
+			}
+			row.MedianFirstTokenMS = &median
+		}
+		if row.generationSeconds > 0 {
+			throughput := float64(row.measuredOutputTokens) / row.generationSeconds
+			row.OutputTokensPerSecond = &throughput
+		}
+		row.firstTokenMeasurements = nil
+		out = append(out, *row)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Turns != out[j].Turns {
+			return out[i].Turns > out[j].Turns
+		}
+		return out[i].Model < out[j].Model
+	})
+	return out, nil
 }

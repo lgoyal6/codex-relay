@@ -204,4 +204,9 @@ var migrations = []string{
 		created_at    TEXT NOT NULL,
 		FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
 	);`,
+
+	// The quota visible after a turn may differ from the quota that informed that turn. Keep
+	// the immutable point-in-time evidence with the decision instead of joining current state.
+	// JSON is intentional because plans expose different window counts and durations.
+	`ALTER TABLE decisions ADD COLUMN quota_snapshot_json TEXT;`,
 }

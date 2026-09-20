@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -282,6 +283,7 @@ func (s *Service) ObserveModels(ctx context.Context, workspaceID string, slugs [
 
 // RecordDecision enqueues an activity row. It never blocks the turn.
 func (s *Service) RecordDecision(rec proxy.Record) {
+	rec.QuotaSnapshot = s.quotaSnapshot(rec.Decision.WorkspaceID)
 	select {
 	case s.audit <- rec:
 	default:
@@ -289,6 +291,37 @@ func (s *Service) RecordDecision(rec proxy.Record) {
 		// must not wait on history.
 		s.Log.Warn("activity queue full; dropped one row")
 	}
+}
+
+func (s *Service) quotaSnapshot(workspaceID string) *proxy.QuotaSnapshot {
+	if workspaceID == "" {
+		return nil
+	}
+	now := s.Clock.Now()
+	st := s.Registry.Current()
+	ws := st.Workspaces[workspaceID]
+	if ws == nil {
+		return nil
+	}
+	minutes := make([]int64, 0, len(ws.Windows))
+	for m := range ws.Windows {
+		minutes = append(minutes, m)
+	}
+	sort.Slice(minutes, func(i, j int) bool { return minutes[i] < minutes[j] })
+	snap := &proxy.QuotaSnapshot{
+		CapturedAt: now, WorkspaceID: workspaceID, Windows: []proxy.QuotaWindowSnapshot{},
+	}
+	for _, m := range minutes {
+		window, evidence := st.EvidenceFor(ws, m, now)
+		if evidence == policy.EvidenceMissing {
+			continue
+		}
+		snap.Windows = append(snap.Windows, proxy.QuotaWindowSnapshot{
+			Minutes: m, Label: policy.HumanWindow(m), RemainingPercent: window.RemainingPercent(),
+			ResetsAt: window.ResetsAt, ObservedAt: window.ObservedAt, Evidence: evidence,
+		})
+	}
+	return snap
 }
 
 func (s *Service) writeDecision(rec proxy.Record) error {
@@ -304,12 +337,21 @@ func (s *Service) writeDecision(rec proxy.Record) error {
 	if u := rec.Usage; u != nil {
 		inTok, cachedTok, outTok, totTok = u.InputTokens, u.CachedInputTokens, u.OutputTokens, u.TotalTokens
 	}
+	var quotaJSON any
+	if rec.QuotaSnapshot != nil {
+		raw, err := json.Marshal(rec.QuotaSnapshot)
+		if err != nil {
+			return err
+		}
+		quotaJSON = string(raw)
+	}
 	_, err = s.DB.SQL().Exec(`
 		INSERT INTO decisions (at, thread_id, model, outcome, workspace_id, primary_reason, summary,
 			detail_json, state_version, attempt, status_code, first_token_ms, total_ms, error_class,
 			input_tokens, cached_input_tokens, output_tokens, total_tokens,
-			error_message, failure_phase, upstream_status, transport, upstream_ms, api_key_id)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			error_message, failure_phase, upstream_status, transport, upstream_ms, api_key_id,
+			quota_snapshot_json)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		rec.At.Format(time.RFC3339Nano), nullIfEmpty(rec.ThreadID), nullIfEmpty(rec.Model),
 		string(rec.Decision.Outcome), nullIfEmpty(rec.Decision.WorkspaceID),
 		string(rec.Decision.Primary), rec.Decision.Summary, string(detail),
@@ -318,7 +360,7 @@ func (s *Service) writeDecision(rec proxy.Record) error {
 		inTok, cachedTok, outTok, totTok,
 		nullIfEmpty(rec.ErrorMessage), nullIfEmpty(rec.FailurePhase),
 		nullIfZero(rec.UpstreamStatus), nullIfEmpty(rec.Transport),
-		nullIfUnmeasured(rec.UpstreamMS), nullIfEmpty(rec.APIKeyID))
+		nullIfUnmeasured(rec.UpstreamMS), nullIfEmpty(rec.APIKeyID), quotaJSON)
 	if err != nil {
 		return err
 	}

@@ -37,6 +37,8 @@ func (a *API) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/state", a.handleState)
 	mux.HandleFunc("GET /api/activity", a.handleActivity)
+	mux.HandleFunc("GET /api/activity.csv", a.handleActivityCSV)
+	mux.HandleFunc("GET /api/models", a.handleModels)
 	mux.HandleFunc("GET /api/events", a.handleEvents)
 	mux.HandleFunc("GET /api/diagnostics", a.handleDiagnostics)
 

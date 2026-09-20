@@ -2,7 +2,8 @@
 // text or conversation bodies are stored. Token counts are the upstream's reported usage.
 
 import { useMemo, useState } from "react";
-import type { ActivityRow, State } from "./api";
+import type { ActivityRow, ModelReportRow, State } from "./api";
+import { api } from "./api";
 import { Badge, EmptyState, Expando, clockText, pct, reasonText } from "./ui";
 import { IconInbox, IconList } from "./icons";
 
@@ -24,21 +25,51 @@ function tokens(r: ActivityRow): string {
   return `${r.total_tokens.toLocaleString()} total`;
 }
 
+function throughput(v: number | null | undefined): string {
+  return v === null || v === undefined ? "-" : `${v.toFixed(1)} tok/s`;
+}
+
 export function Activity({
   state,
   activity,
+  models,
   loading,
 }: {
   state: State;
   activity: ActivityRow[];
+  models: ModelReportRow[];
   loading: boolean;
 }) {
   const [only, setOnly] = useState<"all" | "blocked" | "errors">("all");
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const nameOf = (id?: string) => (id ? state.workspaces.find((w) => w.id === id)?.name ?? id : "-");
-  const quotaNow = (id?: string) => {
-    const w = state.workspaces.find((workspace) => workspace.id === id);
-    if (!w || w.windows.length === 0) return "-";
-    return w.windows.map((window) => `${window.label} ${pct(window.remaining_percent)}`).join(" · ");
+  const quotaAtTurn = (r: ActivityRow) => {
+    if (!r.quota_snapshot) return "not recorded";
+    if (r.quota_snapshot.windows.length === 0) return "no quota reported";
+    return r.quota_snapshot.windows
+      .map((window) => `${window.label} ${pct(window.remaining_percent)}`)
+      .join(" · ");
+  };
+
+  const exportCSV = async () => {
+    setExporting(true);
+    setExportError(null);
+    try {
+      const blob = await api.activityCSV();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "codexrelay-activity.csv";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setExporting(false);
+    }
   };
 
   const rows = useMemo(() => {
@@ -53,13 +84,11 @@ export function Activity({
     const firstTokens = served
       .map((r) => r.first_token_ms)
       .filter((v): v is number => v !== null && v !== undefined);
-    const byModel = new Map<string, number>();
-    for (const r of served) if (r.model) byModel.set(r.model, (byModel.get(r.model) ?? 0) + 1);
     const median =
       firstTokens.length === 0
         ? 0
         : [...firstTokens].sort((a, b) => a - b)[Math.floor(firstTokens.length / 2)];
-    return { total: activity.length, served: served.length, median, byModel: [...byModel.entries()] };
+    return { total: activity.length, served: served.length, median };
   }, [activity]);
 
   return (
@@ -76,13 +105,18 @@ export function Activity({
               discarded; this is a local log, not an archive.
             </p>
           </div>
-          <div className="field" style={{ marginBottom: 0, minWidth: 150 }}>
-            <label htmlFor="act-filter">Show</label>
-            <select id="act-filter" value={only} onChange={(e) => setOnly(e.target.value as typeof only)}>
-              <option value="all">All decisions</option>
-              <option value="blocked">Blocked only</option>
-              <option value="errors">Errors only</option>
-            </select>
+          <div className="row" style={{ gap: 10 }}>
+            <button className="btn" type="button" disabled={exporting} onClick={exportCSV}>
+              {exporting ? "Exporting..." : "Export CSV"}
+            </button>
+            <div className="field" style={{ marginBottom: 0, minWidth: 150 }}>
+              <label htmlFor="act-filter">Show</label>
+              <select id="act-filter" value={only} onChange={(e) => setOnly(e.target.value as typeof only)}>
+                <option value="all">All decisions</option>
+                <option value="blocked">Blocked only</option>
+                <option value="errors">Errors only</option>
+              </select>
+            </div>
           </div>
         </div>
         <div className="row" style={{ gap: 20, marginTop: 12 }}>
@@ -100,17 +134,58 @@ export function Activity({
           </div>
           <div>
             <div className="quota-label">Models seen</div>
-            <div className="quota-pct">
-              {summary.byModel.length === 0
-                ? "-"
-                : summary.byModel.map(([m, n]) => `${m} (${n})`).join(", ")}
-            </div>
+            <div className="quota-pct">{models.length || "-"}</div>
           </div>
         </div>
+        {exportError && <p className="note" style={{ marginTop: 10 }}>{exportError}</p>}
         <p className="note" style={{ marginTop: 10 }}>
           Timings are measured at this proxy, so they include our own overhead and the upstream
           response. They are not a cost estimate: this tool does not know what your subscription
           spends.
+        </p>
+      </section>
+
+      <section className="card">
+        <div className="card-head">
+          <div>
+            <p className="card-title" style={{ fontSize: 13 }}>Model performance</p>
+            <p className="subline">
+              Completed served turns across the retained decision history. Error, cancelled, and blocked rows are excluded.
+            </p>
+          </div>
+        </div>
+        {models.length === 0 ? (
+          <div className="empty">No completed model turns with retained history yet.</div>
+        ) : (
+          <div className="table-wrap">
+            <table className="grid">
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th className="num">Completed turns</th>
+                  <th className="num">Usage coverage</th>
+                  <th className="num">Tokens</th>
+                  <th className="num">Median first token</th>
+                  <th className="num">Measured output speed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {models.map((model) => (
+                  <tr key={model.model}>
+                    <td className="mono">{model.model}</td>
+                    <td className="num">{model.turns.toLocaleString()}</td>
+                    <td className="num">{model.turns_with_usage.toLocaleString()} / {model.turns.toLocaleString()}</td>
+                    <td className="num">{model.total_tokens.toLocaleString()}</td>
+                    <td className="num">{ms(model.median_first_token_ms)}</td>
+                    <td className="num">{throughput(model.output_tokens_per_second)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="note" style={{ marginTop: 10 }}>
+          The report covers at most the 2,000 retained decisions. Output speed is measured only when output tokens and both timing points were reported.
         </p>
       </section>
 
@@ -139,7 +214,7 @@ export function Activity({
                   <th>Decision</th>
                   <th>Workspace</th>
                   <th className="num">Tokens</th>
-                  <th>Quota now</th>
+                  <th>Quota at turn</th>
                   <th>Model</th>
                   <th className="num">Attempt</th>
                   <th className="num">First token</th>
@@ -197,11 +272,18 @@ export function Activity({
                         ))}
                       </Expando>
                     </td>
-                    <td>{nameOf(r.workspace_id)}</td>
+                    <td>
+                      <div>{r.workspace_name || nameOf(r.workspace_id)}</div>
+                      {r.account_email && (
+                        <div className="note mono">{r.account_email}{r.account_plan ? ` · ${r.account_plan}` : ""}</div>
+                      )}
+                    </td>
                     <td className="num" title="Input, cached input, output, and total are in the explanation">
                       {tokens(r)}
                     </td>
-                    <td title="Current quota, not a historical snapshot">{quotaNow(r.workspace_id)}</td>
+                    <td title={r.quota_snapshot ? `Captured ${clockText(r.quota_snapshot.captured_at)}` : "Historical snapshot unavailable"}>
+                      {quotaAtTurn(r)}
+                    </td>
                     <td className="mono">{r.model ?? "-"}</td>
                     <td className="num">{r.attempt}</td>
                     <td className="num">{ms(r.first_token_ms)}</td>
