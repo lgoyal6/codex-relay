@@ -79,7 +79,8 @@ type Decision struct {
 type Request struct {
 	Model string
 	// OwnerWorkspaceID is set when this conversation is already bound to a workspace.
-	// Owner-bound conversations do not migrate silently.
+	// Ownership is retained unless an explicit preference selects another eligible workspace
+	// or the owner reaches an automatic handoff condition.
 	OwnerWorkspaceID string
 	ThreadID         string
 	// Exclude names workspaces this attempt must not pick, because they already refused this
@@ -184,6 +185,7 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 	// Reserve rules are hard restrictions applied on top of eligibility.
 	protectedBy := map[string]Rule{}
 	preferOrder := []string{}
+	explicitPreferOrder := []string{}
 
 	for _, rule := range sortedRules(st.Rules) {
 		if !rule.Enabled {
@@ -192,6 +194,7 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 		switch rule.Kind {
 		case KindPrefer:
 			preferOrder = append(preferOrder, rule.SourceWorkspaceID)
+			explicitPreferOrder = append(explicitPreferOrder, rule.SourceWorkspaceID)
 		case KindReserve:
 			match, unknown, note := reserveMatches(st, rule, now)
 			if note != nil {
@@ -217,9 +220,22 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 		}
 	}
 
-	// Ownership beats preference. An owner-bound conversation stays where it is.
+	// An explicit preference is also the user's account switch. It applies between turns to
+	// existing conversations, not only when a conversation is first created. Find the first
+	// eligible preference separately from the general rank so an unavailable preference does
+	// not move a healthy owner merely because the default workspace or a reserve fallback
+	// ranked next. Reserve-driven handoff keeps its separate safety gate below.
+	preferred := ""
+	for _, id := range explicitPreferOrder {
+		if eligible[id] {
+			preferred = id
+			break
+		}
+	}
+
 	if req.OwnerWorkspaceID != "" {
 		owner := st.Workspaces[req.OwnerWorkspaceID]
+		preferenceMove := preferred != "" && preferred != req.OwnerWorkspaceID
 
 		// An owner that is still eligible but nearly empty is handed off BEFORE the turn that
 		// would fail on it. Waiting for the hard refusal costs the user a failed turn first.
@@ -233,7 +249,7 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 			}
 		}
 
-		if owner != nil && eligible[req.OwnerWorkspaceID] && !nearlyOut {
+		if owner != nil && eligible[req.OwnerWorkspaceID] && !nearlyOut && !preferenceMove {
 			d.Outcome = OutcomeSelected
 			d.WorkspaceID = req.OwnerWorkspaceID
 			d.Primary = ReasonOwnerBound
@@ -251,7 +267,7 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 		// It is still gated, and it still obeys the rules: the replacement is drawn from the
 		// same eligibility set as any other pick, so a reserve rule cannot be side-stepped by
 		// a handoff.
-		if st.HandoffBelowPercent > 0 {
+		if st.HandoffBelowPercent > 0 || preferenceMove {
 			alt := rank(st, ids, eligible, preferOrder)
 			alt = withoutWorkspace(alt, req.OwnerWorkspaceID)
 			if len(alt) > 0 {
@@ -260,8 +276,13 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 				d.Outcome = OutcomeSelected
 				d.WorkspaceID = pick
 				d.Primary = ReasonHandoff
-				d.Summary = fmt.Sprintf("%s can no longer serve this conversation, so it moved to %s. The full conversation is resent each turn, so nothing was lost.",
-					nameOf(st, req.OwnerWorkspaceID), to.Name)
+				if preferenceMove && pick == preferred {
+					d.Summary = fmt.Sprintf("%s owned this conversation, but your rule now prefers %s, so it moved between turns.",
+						nameOf(st, req.OwnerWorkspaceID), to.Name)
+				} else {
+					d.Summary = fmt.Sprintf("%s can no longer serve this conversation, so it moved to %s. The full conversation is resent each turn, so nothing was lost.",
+						nameOf(st, req.OwnerWorkspaceID), to.Name)
+				}
 				d.Notes = append(d.Notes, Note{Code: ReasonHandoff, WorkspaceID: pick, Message: d.Summary})
 				d.Candidates = buildCandidates(st, ids, eligible, detail, details, alt)
 				return d
@@ -279,7 +300,11 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 		if why == "" {
 			why = "It is not currently available."
 		}
-		d.Summary = fmt.Sprintf("This conversation is bound to %s. %s Switching workspaces mid-conversation is not safe, so start a new conversation or change the policy.", name, why)
+		if st.HandoffBelowPercent <= 0 {
+			d.Summary = fmt.Sprintf("This conversation is bound to %s. %s Conversation handoff is disabled, so this turn was blocked. Restore the owner, enable handoff, or start a new conversation.", name, why)
+		} else {
+			d.Summary = fmt.Sprintf("This conversation is bound to %s. %s No eligible alternative is currently available, so this turn was blocked. Restore the owner, change the policy, or start a new conversation.", name, why)
+		}
 		d.Notes = append(d.Notes, Note{Code: ReasonOwnerBlocked, WorkspaceID: req.OwnerWorkspaceID, Message: d.Summary})
 		d.Candidates = buildCandidates(st, ids, eligible, detail, details, nil)
 		return d
