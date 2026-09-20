@@ -16,6 +16,7 @@ export type ReasonCode =
   | "model_eligibility_unknown"
   | "owner_bound_conversation"
   | "owner_bound_but_blocked"
+  | "handed_off"
   | "no_eligible_workspace"
   | "reserve_has_no_alternative"
   | "quota_exhausted";
@@ -210,6 +211,11 @@ export interface ActivityRow {
   first_token_ms: number | null;
   total_ms: number | null;
   error_class?: string;
+  /** null when the completed turn did not report usage; 0 is a reported zero. */
+  input_tokens: number | null;
+  cached_input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
 }
 
 export interface Scenario {

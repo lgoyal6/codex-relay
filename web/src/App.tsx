@@ -256,6 +256,7 @@ export function App() {
             onNavigate={setTab}
             onEditRule={editRule}
             onReconnect={connect}
+            reload={reload}
           />
         )}
         {tab === "workspaces" && (

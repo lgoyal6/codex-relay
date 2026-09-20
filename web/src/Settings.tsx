@@ -167,12 +167,13 @@ export function Settings({
               </td>
             </tr>
             <tr>
-              <td>Existing conversations</td>
+              <td>Conversation handoff</td>
               <td>
-                A conversation stays on the workspace that started it. Rules apply to{" "}
-                <strong>new</strong> conversations. If an existing one is blocked, codex-relay
-                explains why rather than moving it, because moving it mid-conversation is not
-                known to be safe.
+                An explicit preference can move an existing conversation to that workspace on
+                its next turn when it is eligible. codex-relay can also move it when the current
+                owner is exhausted, protected, paused, signed out, or ineligible for the model and
+                another eligible workspace is available. A quota refusal may be retried elsewhere
+                before output starts. Once any output reaches Codex, the turn is never replayed.
               </td>
             </tr>
             <tr>
