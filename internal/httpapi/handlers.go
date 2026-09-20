@@ -176,6 +176,52 @@ func (a *API) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"deleted": true, "state_version": a.Svc.Registry.Current().Version})
 }
 
+func (a *API) handleListProfiles(w http.ResponseWriter, r *http.Request) {
+	profiles, err := a.Svc.RoutingProfiles(r.Context())
+	if err != nil {
+		writeErr(w, 500, err)
+		return
+	}
+	active := ""
+	if profile := a.Svc.Registry.Current().ActiveProfile; profile != nil {
+		active = profile.ID
+	}
+	writeJSON(w, 200, map[string]any{"profiles": profiles, "active_profile_id": active})
+}
+
+func (a *API) handleSaveProfile(w http.ResponseWriter, r *http.Request) {
+	var profile policy.RoutingProfile
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&profile); err != nil {
+		writeErr(w, 400, fmt.Errorf("could not read the routing profile: %w", err))
+		return
+	}
+	saved, err := a.Svc.SaveRoutingProfile(r.Context(), profile)
+	if err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"profile": saved})
+}
+
+func (a *API) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
+	if err := a.Svc.DeleteRoutingProfile(r.Context(), r.PathValue("id")); err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"deleted": true})
+}
+
+func (a *API) handleActivateProfile(w http.ResponseWriter, r *http.Request) {
+	profile, err := a.Svc.ActivateRoutingProfile(r.Context(), r.PathValue("command"))
+	if err != nil {
+		writeErr(w, 404, err)
+		return
+	}
+	state := a.Svc.Registry.Current()
+	decision := policy.Evaluate(state, policy.Request{}, a.Svc.Clock.Now())
+	writeJSON(w, 200, map[string]any{"profile": profile, "decision": decision})
+}
+
 type previewRequest struct {
 	Rules     []policy.Rule      `json:"rules"`
 	Model     string             `json:"model"`

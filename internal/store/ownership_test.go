@@ -234,6 +234,7 @@ func TestSchemaHasEveryExpectedColumn(t *testing.T) {
 		"quota_windows":       {"workspace_id", "limit_id", "window_minutes", "used_percent", "resets_at", "observed_at"},
 		"thread_ownership":    {"thread_id", "workspace_id", "first_seen_at", "last_seen_at", "released_at"},
 		"integration_changes": {"target_path", "backup_path", "before_sha256", "after_sha256", "rolled_back_at"},
+		"routing_profiles":    {"id", "name", "command", "aliases_json", "mode", "priority_workspace_ids_json", "pace_workspace_ids_json", "overflow_workspace_id", "target_remaining_percent", "default_workspace_id", "handoff_below_percent", "disabled_workspace_ids_json"},
 	}
 
 	for table, cols := range want {

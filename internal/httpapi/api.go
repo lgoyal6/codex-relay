@@ -45,6 +45,10 @@ func (a *API) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/rules", a.handleSaveRule)
 	mux.HandleFunc("POST /api/rules/preview", a.handlePreview)
 	mux.HandleFunc("DELETE /api/rules/{id}", a.handleDeleteRule)
+	mux.HandleFunc("GET /api/profiles", a.handleListProfiles)
+	mux.HandleFunc("POST /api/profiles", a.handleSaveProfile)
+	mux.HandleFunc("DELETE /api/profiles/{id}", a.handleDeleteProfile)
+	mux.HandleFunc("POST /api/profiles/{command}/activate", a.handleActivateProfile)
 
 	mux.HandleFunc("POST /api/workspaces/connect", a.handleConnect)
 	mux.HandleFunc("POST /api/workspaces/connect/complete", a.handleConnectComplete)
@@ -86,19 +90,22 @@ func writeErr(w http.ResponseWriter, status int, err error) {
 
 // StateResponse is everything Overview needs in one read.
 type StateResponse struct {
-	Version            int64           `json:"version"`
-	Workspaces         []WorkspaceView `json:"workspaces"`
-	Rules              []RuleView      `json:"rules"`
-	Proposed           policy.Decision `json:"proposed"`
-	Problems           []Problem       `json:"problems"`
-	ProxyAddr          string          `json:"proxy_addr"`
-	AppVersion         string          `json:"app_version"`
-	Now                time.Time       `json:"now"`
-	Credential         secrets.Health  `json:"credential_storage"`
-	DefaultWorkspaceID string          `json:"default_workspace_id"`
-	Summary            Summary         `json:"summary"`
-	Projections        []Projection    `json:"projections"`
-	PoolTotals         []PoolTotal     `json:"pool_totals"`
+	Version            int64                 `json:"version"`
+	Workspaces         []WorkspaceView       `json:"workspaces"`
+	Rules              []RuleView            `json:"rules"`
+	Proposed           policy.Decision       `json:"proposed"`
+	Problems           []Problem             `json:"problems"`
+	ProxyAddr          string                `json:"proxy_addr"`
+	AppVersion         string                `json:"app_version"`
+	Now                time.Time             `json:"now"`
+	Credential         secrets.Health        `json:"credential_storage"`
+	DefaultWorkspaceID string                `json:"default_workspace_id"`
+	Summary            Summary               `json:"summary"`
+	Projections        []Projection          `json:"projections"`
+	PoolTotals         []PoolTotal           `json:"pool_totals"`
+	Profiles           []ProfileView         `json:"profiles"`
+	ActiveProfileID    string                `json:"active_profile_id,omitempty"`
+	PaceStandings      []policy.PaceStanding `json:"pace_standings"`
 }
 
 // Summary holds the headline counters the Overview tiles render.
@@ -214,6 +221,12 @@ type RuleView struct {
 	Sentence string `json:"sentence"`
 }
 
+type ProfileView struct {
+	policy.RoutingProfile
+	Active   bool   `json:"active"`
+	Sentence string `json:"sentence"`
+}
+
 type Problem struct {
 	Kind        string `json:"kind"`
 	WorkspaceID string `json:"workspace_id,omitempty"`
@@ -260,6 +273,8 @@ func (a *API) handleState(w http.ResponseWriter, r *http.Request) {
 		Credential:         a.Svc.Secrets.Probe(),
 		Workspaces:         []WorkspaceView{},
 		Rules:              []RuleView{},
+		Profiles:           []ProfileView{},
+		PaceStandings:      []policy.PaceStanding{},
 		Problems:           []Problem{},
 	}
 
@@ -322,6 +337,22 @@ func (a *API) handleState(w http.ResponseWriter, r *http.Request) {
 
 	for _, rule := range st.Rules {
 		resp.Rules = append(resp.Rules, RuleView{Rule: rule, Sentence: rule.Sentence(names)})
+	}
+	profiles, err := a.Svc.RoutingProfiles(r.Context())
+	if err != nil {
+		writeErr(w, 500, err)
+		return
+	}
+	if st.ActiveProfile != nil {
+		resp.ActiveProfileID = st.ActiveProfile.ID
+		resp.PaceStandings = policy.PaceStandings(st, now)
+	}
+	for _, profile := range profiles {
+		resp.Profiles = append(resp.Profiles, ProfileView{
+			RoutingProfile: profile,
+			Active:         st.ActiveProfile != nil && st.ActiveProfile.ID == profile.ID,
+			Sentence:       profile.Sentence(names),
+		})
 	}
 
 	if proposed.Outcome != policy.OutcomeSelected {

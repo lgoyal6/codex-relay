@@ -69,8 +69,9 @@ type State struct {
 	// Order is the deterministic workspace ordering used to break ties.
 	Order []string `json:"order"`
 	// DefaultWorkspaceID is the workspace used when nothing else orders the choice.
-	DefaultWorkspaceID string `json:"default_workspace_id"`
-	Rules              []Rule `json:"rules"`
+	DefaultWorkspaceID string          `json:"default_workspace_id"`
+	Rules              []Rule          `json:"rules"`
+	ActiveProfile      *RoutingProfile `json:"active_profile,omitempty"`
 	// StaleAfter is how old a reading may be before it is labelled stale.
 	StaleAfter time.Duration `json:"stale_after"`
 	// HandoffBelowPercent moves an owner-bound conversation to another workspace once the

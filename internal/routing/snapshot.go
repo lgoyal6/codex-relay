@@ -107,6 +107,14 @@ func CloneForPreview(src *policy.State) *policy.State {
 		HandoffBelowPercent: src.HandoffBelowPercent,
 		Workspaces:          make(map[string]*policy.WorkspaceState, len(src.Workspaces)),
 	}
+	if src.ActiveProfile != nil {
+		profile := *src.ActiveProfile
+		profile.Aliases = append([]string(nil), src.ActiveProfile.Aliases...)
+		profile.PriorityWorkspaceIDs = append([]string(nil), src.ActiveProfile.PriorityWorkspaceIDs...)
+		profile.PaceWorkspaceIDs = append([]string(nil), src.ActiveProfile.PaceWorkspaceIDs...)
+		profile.DisabledWorkspaceIDs = append([]string(nil), src.ActiveProfile.DisabledWorkspaceIDs...)
+		dst.ActiveProfile = &profile
+	}
 	for id, ws := range src.Workspaces {
 		cp := *ws
 		cp.Windows = make(map[int64]policy.Window, len(ws.Windows))
