@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/lgoyal6/codex-relay/internal/policy"
 )
 
 func TestProfileAPIUsesOneSavedProfileForActivationAndState(t *testing.T) {
@@ -18,7 +20,9 @@ func TestProfileAPIUsesOneSavedProfileForActivationAndState(t *testing.T) {
 	}
 	if _, err := a.Svc.DB.SQL().ExecContext(ctx, `INSERT INTO workspaces
 		(id, account_id, chatgpt_account_id, display_name, credential_ref, credential_ok, created_at, updated_at)
-		VALUES ('free','a','cg','Free','ref',1,'2026-09-20T00:00:00Z','2026-09-20T00:00:00Z')`); err != nil {
+		VALUES
+		('mine','a','cg-mine','Mine','ref-mine',1,'2026-09-20T00:00:00Z','2026-09-20T00:00:00Z'),
+		('free','a','cg-free','Free','ref-free',1,'2026-09-20T00:00:00Z','2026-09-20T00:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.Svc.Refresh(ctx); err != nil {
@@ -62,5 +66,9 @@ func TestProfileAPIUsesOneSavedProfileForActivationAndState(t *testing.T) {
 	}
 	if state.Proposed.WorkspaceID != "free" {
 		t.Fatalf("active profile selected %q", state.Proposed.WorkspaceID)
+	}
+	decision := a.Svc.Decide(ctx, policy.Request{OwnerWorkspaceID: "mine", ThreadID: "existing-chat"})
+	if decision.WorkspaceID != "free" || decision.Primary != policy.ReasonHandoff {
+		t.Fatalf("existing chat did not switch between turns: %+v", decision)
 	}
 }
