@@ -77,9 +77,10 @@ make web        # compile the dashboard into internal/httpapi/dist
 make cross      # build every supported OS/architecture target
 ```
 
-`make cross` proves the code compiles for macOS, Linux and Windows on amd64 and arm64. It is
-not evidence that installation or OS credential storage works on those systems. What has and
-has not been verified is stated in [docs/compatibility.md](docs/compatibility.md).
+`make cross` proves the code compiles for macOS, Linux and Windows on amd64 and arm64.
+Platform CI separately proves native credential-store write, read and delete on hosted
+macOS, Linux and Windows runners. Neither proves archive installation or full app behavior;
+the exact boundary is stated in [docs/compatibility.md](docs/compatibility.md).
 
 ## Documentation
 
