@@ -483,6 +483,16 @@ func (s *Service) Refresh(ctx context.Context) error {
 			st.HandoffBelowPercent = f
 		}
 	}
+	st.ActiveProfile, err = s.ActiveRoutingProfile(ctx)
+	if err != nil {
+		return err
+	}
+	if st.ActiveProfile != nil {
+		if st.ActiveProfile.DefaultWorkspaceID != "" {
+			st.DefaultWorkspaceID = st.ActiveProfile.DefaultWorkspaceID
+		}
+		st.HandoffBelowPercent = st.ActiveProfile.HandoffBelowPercent
+	}
 
 	s.Registry.Publish(st)
 	return nil

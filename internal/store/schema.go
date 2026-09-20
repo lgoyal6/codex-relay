@@ -209,4 +209,23 @@ var migrations = []string{
 	// the immutable point-in-time evidence with the decision instead of joining current state.
 	// JSON is intentional because plans expose different window counts and durations.
 	`ALTER TABLE decisions ADD COLUMN quota_snapshot_json TEXT;`,
+
+	// Profiles are reusable routing strategies shared by the dashboard and relaypool. JSON
+	// arrays keep ordered workspace priority and aliases without adding positional join tables.
+	`CREATE TABLE routing_profiles (
+		id                           TEXT PRIMARY KEY,
+		name                         TEXT NOT NULL,
+		command                      TEXT NOT NULL UNIQUE,
+		aliases_json                 TEXT NOT NULL DEFAULT '[]',
+		mode                         TEXT NOT NULL,
+		priority_workspace_ids_json  TEXT NOT NULL DEFAULT '[]',
+		pace_workspace_ids_json      TEXT NOT NULL DEFAULT '[]',
+		overflow_workspace_id        TEXT NOT NULL DEFAULT '',
+		target_remaining_percent     REAL NOT NULL DEFAULT 3,
+		default_workspace_id         TEXT NOT NULL DEFAULT '',
+		handoff_below_percent        REAL NOT NULL DEFAULT 2,
+		disabled_workspace_ids_json  TEXT NOT NULL DEFAULT '[]',
+		created_at                   TEXT NOT NULL,
+		updated_at                   TEXT NOT NULL
+	);`,
 }

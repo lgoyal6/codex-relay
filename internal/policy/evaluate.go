@@ -25,6 +25,10 @@ const (
 	ReasonReserveNoAlternate ReasonCode = "reserve_has_no_alternative"
 	ReasonQuotaExhausted     ReasonCode = "quota_exhausted"
 	ReasonHandoff            ReasonCode = "handed_off"
+	ReasonProfilePreferred   ReasonCode = "preferred_by_profile"
+	ReasonProfileDisabled    ReasonCode = "disabled_by_profile"
+	ReasonWeeklyPace         ReasonCode = "weekly_pace"
+	ReasonPaceOverflow       ReasonCode = "pace_overflow"
 )
 
 // Outcome is what the evaluator decided.
@@ -115,6 +119,12 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 	eligible := map[string]bool{}
 	detail := map[string]ReasonCode{}
 	details := map[string]string{}
+	profileDisabled := map[string]bool{}
+	if st.ActiveProfile != nil {
+		for _, id := range st.ActiveProfile.DisabledWorkspaceIDs {
+			profileDisabled[id] = true
+		}
+	}
 
 	for _, id := range ids {
 		ws := st.Workspaces[id]
@@ -124,6 +134,8 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 		switch {
 		case ws.Paused:
 			detail[id], details[id] = ReasonPaused, "Paused, so it is not admitting new conversations."
+		case profileDisabled[id]:
+			detail[id], details[id] = ReasonProfileDisabled, "Disabled by the active routing profile."
 		case !ws.CredentialOK:
 			msg := "Its credential needs attention."
 			if ws.CredentialNote != "" {
@@ -218,6 +230,40 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 				preferOrder = append(preferOrder, rule.PreferredWorkspaceID)
 			}
 		}
+	}
+
+	// Profiles are reusable user-named strategies. They order only workspaces that survived
+	// hard eligibility and reserve protection. A profile therefore cannot override a pause,
+	// broken credential, exhausted quota, unsupported model, or reserve rule.
+	profileOrder := []string{}
+	profileReason := ""
+	profileCode := ReasonProfilePreferred
+	if p := st.ActiveProfile; p != nil {
+		switch p.Mode {
+		case ProfilePace:
+			profileOrder, _, profileReason = paceOrder(st, eligible, now)
+			if len(profileOrder) > 0 && profileOrder[0] == p.OverflowWorkspaceID {
+				profileCode = ReasonPaceOverflow
+			} else {
+				profileCode = ReasonWeeklyPace
+			}
+		case ProfilePriority:
+			for _, id := range p.PriorityWorkspaceIDs {
+				if eligible[id] {
+					profileOrder = append(profileOrder, id)
+				}
+			}
+			if len(profileOrder) > 0 {
+				profileReason = fmt.Sprintf("The active %s profile prefers %s.", p.Name, nameOf(st, profileOrder[0]))
+			}
+		}
+	}
+	if len(profileOrder) > 0 {
+		preferOrder = append(profileOrder, preferOrder...)
+		explicitPreferOrder = append([]string{profileOrder[0]}, explicitPreferOrder...)
+		d.Notes = append(d.Notes, Note{
+			Code: profileCode, WorkspaceID: profileOrder[0], Message: profileReason,
+		})
 	}
 
 	// An explicit preference is also the user's account switch. It applies between turns to
@@ -332,6 +378,11 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 	d.WorkspaceID = pick
 	d.Primary = ReasonDefault
 	d.Summary = fmt.Sprintf("New conversations will use %s.", ws.Name)
+	if len(profileOrder) > 0 && pick == profileOrder[0] {
+		d.Primary = profileCode
+		d.Summary = profileReason
+		return d
+	}
 	for _, p := range preferOrder {
 		if p == pick {
 			d.Primary = ReasonPreferred
