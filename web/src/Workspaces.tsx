@@ -249,16 +249,18 @@ export function Workspaces({
             <Expando summary="What these do">
               <ul style={{ margin: 0, paddingLeft: 18 }} className="note">
                 <li>
-                  <strong>Pause</strong> stops this workspace taking <em>new</em> conversations. Its stored
-                  sign-in is kept and conversations already bound to it keep working.
+                  <strong>Pause</strong> stops this workspace taking new turns. Its stored sign-in is
+                  kept, and bound conversations hand off to an eligible alternative when one is
+                  available.
                 </li>
                 <li>
                   <strong>Reconnect</strong> signs in again in your browser and replaces the stored
-                  credential for this workspace. Existing conversations keep their owner.
+                  credential for this workspace. Conversations keep their owner unless your
+                  preference selects another eligible workspace or a handoff condition applies.
                 </li>
                 <li>
                   <strong>Remove</strong> deletes the stored sign-in from your OS credential store.
-                  Conversations bound to this workspace cannot continue afterwards.
+                  Conversations bound to this workspace need an eligible alternative afterwards.
                 </li>
                 <li>
                   <strong>Use as default</strong> chooses this verified workspace identity when no rule

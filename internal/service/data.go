@@ -205,6 +205,12 @@ type ActivityRow struct {
 	FirstTokenMS *int64 `json:"first_token_ms"`
 	TotalMS      *int64 `json:"total_ms"`
 	ErrorClass   string `json:"error_class,omitempty"`
+	// Token counts come from the model's response.completed usage event. null means the
+	// turn did not report usage; zero is a reported zero and must remain distinguishable.
+	InputTokens       *int64 `json:"input_tokens"`
+	CachedInputTokens *int64 `json:"cached_input_tokens"`
+	OutputTokens      *int64 `json:"output_tokens"`
+	TotalTokens       *int64 `json:"total_tokens"`
 
 	// Diagnostic detail. ErrorClass buckets a failure; these say what actually happened.
 	ErrorMessage string `json:"error_message,omitempty"`
@@ -229,6 +235,7 @@ func (s *Service) Activity(ctx context.Context, limit int) ([]ActivityRow, error
 	rows, err := s.DB.SQL().QueryContext(ctx, `
 		SELECT id, at, thread_id, model, outcome, workspace_id, primary_reason, summary,
 		       detail_json, attempt, status_code, first_token_ms, total_ms, error_class,
+		       input_tokens, cached_input_tokens, output_tokens, total_tokens,
 		       error_message, failure_phase, upstream_status, transport, upstream_ms
 		FROM decisions ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {
@@ -240,9 +247,10 @@ func (s *Service) Activity(ctx context.Context, limit int) ([]ActivityRow, error
 		var r ActivityRow
 		var at, detail string
 		var thread, model, ws, errClass, errMsg, phase, transport sql.NullString
-		var status, first, total, upStatus, upMS sql.NullInt64
+		var status, first, total, input, cached, output, tokens, upStatus, upMS sql.NullInt64
 		if err := rows.Scan(&r.ID, &at, &thread, &model, &r.Outcome, &ws, &r.Reason, &r.Summary,
 			&detail, &r.Attempt, &status, &first, &total, &errClass,
+			&input, &cached, &output, &tokens,
 			&errMsg, &phase, &upStatus, &transport, &upMS); err != nil {
 			return nil, err
 		}
@@ -262,6 +270,22 @@ func (s *Service) Activity(ctx context.Context, limit int) ([]ActivityRow, error
 		if total.Valid {
 			v := total.Int64
 			r.TotalMS = &v
+		}
+		if input.Valid {
+			v := input.Int64
+			r.InputTokens = &v
+		}
+		if cached.Valid {
+			v := cached.Int64
+			r.CachedInputTokens = &v
+		}
+		if output.Valid {
+			v := output.Int64
+			r.OutputTokens = &v
+		}
+		if tokens.Valid {
+			v := tokens.Int64
+			r.TotalTokens = &v
 		}
 		var d struct {
 			Notes      []policy.Note      `json:"notes"`

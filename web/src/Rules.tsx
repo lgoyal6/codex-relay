@@ -45,7 +45,9 @@ const resetSymbol = (c: Rule["reset_comparison"]) => (c === "at_most" ? "<=" : "
  * this one, so the two can never quietly disagree.
  */
 export function sentenceOf(r: Rule, name: (id: string) => string): string {
-  if (r.kind === "prefer") return `Prefer ${name(r.source_workspace_id)} for new conversations.`;
+  if (r.kind === "prefer") {
+    return `Prefer ${name(r.source_workspace_id)} for conversations. Existing conversations move on their next turn when it is eligible.`;
+  }
   const tail =
     r.no_alternative === "use_protected"
       ? `use ${name(r.source_workspace_id)} anyway`

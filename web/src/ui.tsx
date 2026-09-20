@@ -10,9 +10,10 @@ import {
   IconClock,
   IconFlask,
   IconInfo,
+  IconPlay,
 } from "./icons";
 
-export type BadgeKind = "ok" | "warn" | "danger" | "protect" | "neutral" | "info";
+export type BadgeKind = "ok" | "warn" | "danger" | "protect" | "neutral" | "info" | "next";
 
 /**
  * Badge carries state as an icon PLUS a word, never colour alone, so the meaning survives
@@ -41,6 +42,8 @@ function badgeIcon(kind: BadgeKind) {
   switch (kind) {
     case "ok":
       return <IconCheck />;
+    case "next":
+      return <IconPlay />;
     case "warn":
     case "danger":
       return <IconAlert />;
@@ -176,6 +179,23 @@ export function untilText(iso: string | null, now: Date): string {
   return `in ${(hours / 24).toFixed(1)} days`;
 }
 
+/** resetAtText pairs a local calendar timestamp with the countdown a person plans around. */
+export function resetAtText(iso: string | null, now: Date): string {
+  if (!iso) return "Reset time unavailable";
+  const reset = new Date(iso);
+  if (Number.isNaN(reset.getTime())) return "Reset time unavailable";
+  if (reset.getTime() <= now.getTime()) return "Resetting now";
+
+  const absolute = new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(reset);
+  return `Resets ${absolute} · ${untilText(iso, now)}`;
+}
+
 export function agoText(iso: string, now: Date): string {
   const ms = now.getTime() - new Date(iso).getTime();
   if (Number.isNaN(ms)) return "unknown";
@@ -276,6 +296,8 @@ export function reasonText(code: string): string {
       return "Bound to this conversation";
     case "owner_bound_but_blocked":
       return "Bound conversation is blocked";
+    case "handed_off":
+      return "Moved between accounts";
     case "no_eligible_workspace":
       return "No eligible workspace";
     case "reserve_has_no_alternative":

@@ -143,6 +143,157 @@
   --series-5: oklch(0.645 0.12 16);
 }
 
+/* ---------- Patchbay palette (opt-in) ----------
+ *
+ * A second complete palette, layered behind the tokens above. Nothing here applies until
+ * <html> carries data-palette="patchbay", so the original palette remains the default and
+ * the two can be compared side by side:
+ *
+ *   document.documentElement.dataset.palette = "patchbay";   // on
+ *   delete document.documentElement.dataset.palette;         // off
+ *
+ * The idea is thermal inversion. The substrate is ember-tinted graphite rather than neutral
+ * grey (every surface and text token carries a little chroma at hue 45/75, so the chrome
+ * reads as warm metal, not as #18181B). The status ramp runs gold -> amber -> red as one
+ * continuous heat gradient, the way an annunciator panel behaves. Against all that warmth,
+ * exactly one cold hue exists: --next, the account that will serve the next conversation.
+ * It is the only cool thing on screen, so it cannot be mistaken for a quota state.
+ *
+ * Two reds, on purpose. --danger is failure (blocked, needs sign-in, out of quota).
+ * --protect is policy: the reserve line a workspace is being held above. They share a
+ * family because they are related, and they separate by chroma, by luminance, and by the
+ * icon and word every badge already carries. --protect is never used as text: it is the
+ * 2px marker only, which is why it can sit at the highest chroma in the system. Badge text
+ * uses --protect-fg, which is the same family lightened until it clears 4.5:1 on its tint.
+ *
+ * Severity is also monotonic in luminance (ok .508 > warn .381 > danger .270 > protect .207)
+ * so a meter reads correctly in greyscale. That redundancy is load-bearing: under simulated
+ * deuteranopia --ok and --danger are only 1.42:1 apart, so the icons and labels in ui.tsx
+ * remain the primary channel, exactly as the header of this file promises.
+ */
+
+:root[data-palette="patchbay"] {
+  --bg: oklch(0.958 0.01 75);
+  --fg: oklch(0.225 0.016 55);
+  --card: oklch(0.988 0.005 75);
+  --card-raised: oklch(1 0 75);
+  --muted: oklch(0.925 0.012 75);
+  --muted-fg: oklch(0.455 0.02 52);
+  --faint-fg: oklch(0.5 0.02 52);
+  --border: oklch(0.865 0.016 70);
+  --border-strong: oklch(0.625 0.024 62);
+
+  --primary: oklch(0.495 0.103 80);
+  --primary-hover: oklch(0.42 0.089 78);
+  --primary-fg: oklch(1 0 75);
+  --primary-soft: oklch(0.955 0.04 80);
+  --ring: oklch(0.495 0.103 80);
+
+  --ok: oklch(0.505 0.134 152);
+  --ok-soft: oklch(0.955 0.042 152);
+  --warn: oklch(0.525 0.127 58);
+  --warn-soft: oklch(0.955 0.027 58);
+  --danger: oklch(0.495 0.195 25);
+  --danger-soft: oklch(0.95 0.025 25);
+
+  --protect: oklch(0.485 0.195 18);
+  --protect-fg: oklch(0.4 0.15 12);
+  --protect-soft: oklch(0.95 0.028 18);
+  --protect-casing: oklch(1 0 75);
+
+  --next: oklch(0.455 0.155 262);
+  --next-soft: oklch(0.955 0.021 262);
+
+  --track: oklch(0.9 0.014 75);
+  --series-1: oklch(0.7 0.14 95);
+  --series-2: oklch(0.615 0.16 40);
+  --series-3: oklch(0.53 0.195 350);
+  --series-4: oklch(0.455 0.17 308);
+  --series-5: oklch(0.375 0.14 262);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="patchbay"]:not([data-theme="light"]) {
+    --bg: oklch(0.155 0.009 45);
+    --fg: oklch(0.965 0.008 85);
+    --card: oklch(0.205 0.011 45);
+    --card-raised: oklch(0.255 0.013 45);
+    --muted: oklch(0.3 0.014 45);
+    --muted-fg: oklch(0.79 0.014 72);
+    --faint-fg: oklch(0.67 0.016 66);
+    --border: oklch(0.355 0.016 45);
+    --border-strong: oklch(0.565 0.022 45);
+
+    --primary: oklch(0.88 0.155 95);
+    --primary-hover: oklch(0.935 0.115 98);
+    --primary-fg: oklch(0.155 0.009 45);
+    --primary-soft: oklch(0.28 0.055 95);
+    --ring: oklch(0.88 0.155 95);
+
+    --ok: oklch(0.78 0.17 152);
+    --ok-soft: oklch(0.285 0.058 152);
+    --warn: oklch(0.735 0.16 62);
+    --warn-soft: oklch(0.275 0.055 62);
+    --danger: oklch(0.67 0.195 25);
+    --danger-soft: oklch(0.26 0.065 25);
+
+    --protect: oklch(0.62 0.23 18);
+    --protect-fg: oklch(0.84 0.16 12);
+    --protect-soft: oklch(0.26 0.065 18);
+    --protect-casing: oklch(0.155 0.009 45);
+
+    --next: oklch(0.87 0.064 258);
+    --next-soft: oklch(0.29 0.052 258);
+
+    --track: oklch(0.3 0.014 45);
+    --series-1: oklch(0.88 0.15 95);
+    --series-2: oklch(0.79 0.126 40);
+    --series-3: oklch(0.7 0.19 350);
+    --series-4: oklch(0.61 0.17 308);
+    --series-5: oklch(0.525 0.13 262);
+  }
+}
+
+:root[data-palette="patchbay"][data-theme="dark"] {
+  --bg: oklch(0.155 0.009 45);
+  --fg: oklch(0.965 0.008 85);
+  --card: oklch(0.205 0.011 45);
+  --card-raised: oklch(0.255 0.013 45);
+  --muted: oklch(0.3 0.014 45);
+  --muted-fg: oklch(0.79 0.014 72);
+  --faint-fg: oklch(0.67 0.016 66);
+  --border: oklch(0.355 0.016 45);
+  --border-strong: oklch(0.565 0.022 45);
+
+  --primary: oklch(0.88 0.155 95);
+  --primary-hover: oklch(0.935 0.115 98);
+  --primary-fg: oklch(0.155 0.009 45);
+  --primary-soft: oklch(0.28 0.055 95);
+  --ring: oklch(0.88 0.155 95);
+
+  --ok: oklch(0.78 0.17 152);
+  --ok-soft: oklch(0.285 0.058 152);
+  --warn: oklch(0.735 0.16 62);
+  --warn-soft: oklch(0.275 0.055 62);
+  --danger: oklch(0.67 0.195 25);
+  --danger-soft: oklch(0.26 0.065 25);
+
+  --protect: oklch(0.62 0.23 18);
+  --protect-fg: oklch(0.84 0.16 12);
+  --protect-soft: oklch(0.26 0.065 18);
+  --protect-casing: oklch(0.155 0.009 45);
+
+  --next: oklch(0.87 0.064 258);
+  --next-soft: oklch(0.29 0.052 258);
+
+  --track: oklch(0.3 0.014 45);
+  --series-1: oklch(0.88 0.15 95);
+  --series-2: oklch(0.79 0.126 40);
+  --series-3: oklch(0.7 0.19 350);
+  --series-4: oklch(0.61 0.17 308);
+  --series-5: oklch(0.525 0.13 262);
+}
+
 * { box-sizing: border-box; }
 
 html { -webkit-text-size-adjust: 100%; }
@@ -374,8 +525,12 @@ table.grid td.num, table.grid th.num { text-align: right; }
 .badge.ok { background: var(--ok-soft); color: var(--ok); border-color: color-mix(in oklch, var(--ok) 26%, transparent); }
 .badge.warn { background: var(--warn-soft); color: var(--warn); border-color: color-mix(in oklch, var(--warn) 30%, transparent); }
 .badge.danger { background: var(--danger-soft); color: var(--danger); border-color: color-mix(in oklch, var(--danger) 28%, transparent); }
-.badge.protect { background: var(--protect-soft); color: var(--protect); border-color: color-mix(in oklch, var(--protect) 28%, transparent); }
+.badge.protect { background: var(--protect-soft); color: var(--protect-fg, var(--protect)); border-color: color-mix(in oklch, var(--protect) 34%, transparent); }
 .badge.info { background: var(--primary-soft); color: var(--primary); border-color: color-mix(in oklch, var(--primary) 26%, transparent); }
+.badge.next {
+  background: var(--next-soft, var(--primary-soft)); color: var(--next, var(--primary));
+  border-color: color-mix(in oklch, var(--next, var(--primary)) 40%, transparent);
+}
 .badge.neutral { background: var(--muted); color: var(--muted-fg); border-color: var(--border); }
 
 /* ---------- problems ---------- */
@@ -601,6 +756,14 @@ pre.diag {
   background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm); padding: 14px 16px; display: flex; flex-direction: column; gap: 12px;
 }
+/* The workspace that will serve the next conversation. Lifted onto the raised surface and
+   railed in the one cold colour the palette owns, so it is identifiable before the badge
+   is read. The badge and its icon still carry the meaning on their own. */
+.acct.is-next {
+  background: var(--card-raised);
+  border-color: color-mix(in oklch, var(--next, var(--primary)) 38%, var(--border));
+  box-shadow: var(--shadow-md), inset 2px 0 0 var(--next, var(--primary));
+}
 .acct-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .acct-name { font-size: 14px; font-weight: 600; letter-spacing: -0.015em; word-break: break-all; }
 /* No text-transform here: this slot holds both an account id, which must not be
@@ -617,7 +780,11 @@ pre.diag {
 .meter-fill.ok { background: var(--ok); }
 .meter-fill.low { background: var(--warn); }
 .meter-fill.crit { background: var(--danger); }
-.meter-marker { position: absolute; top: -4px; bottom: -4px; width: 2px; border-radius: 1px; background: var(--protect); }
+.meter-marker {
+  position: absolute; top: -4px; bottom: -4px; width: 2px;
+  border-radius: 1px; background: var(--protect);
+  box-shadow: 0 0 0 1px var(--protect-casing, var(--card));
+}
 .meter-marker::after {
   content: ""; position: absolute; top: -3px; left: -2.5px;
   border-left: 3.5px solid transparent; border-right: 3.5px solid transparent;

@@ -1,9 +1,9 @@
 // Activity: what was decided, which identity served it, why, and how it went. No prompt
-// text, conversation bodies or tokens are stored, so none can be shown here.
+// text or conversation bodies are stored. Token counts are the upstream's reported usage.
 
 import { useMemo, useState } from "react";
 import type { ActivityRow, State } from "./api";
-import { Badge, EmptyState, Expando, clockText, reasonText } from "./ui";
+import { Badge, EmptyState, Expando, clockText, pct, reasonText } from "./ui";
 import { IconInbox, IconList } from "./icons";
 
 // null means the value was never measured; 0 means it was measured as under a millisecond.
@@ -11,6 +11,17 @@ import { IconInbox, IconList } from "./icons";
 function ms(v: number | null | undefined): string {
   if (v === null || v === undefined) return "-";
   return v < 1000 ? `${v} ms` : `${(v / 1000).toFixed(2)} s`;
+}
+
+function shortThread(id?: string): string {
+  if (!id) return "-";
+  if (id.length <= 14) return id;
+  return `${id.slice(0, 5)}…${id.slice(-8)}`;
+}
+
+function tokens(r: ActivityRow): string {
+  if (r.total_tokens === null || r.total_tokens === undefined) return "-";
+  return `${r.total_tokens.toLocaleString()} total`;
 }
 
 export function Activity({
@@ -24,6 +35,11 @@ export function Activity({
 }) {
   const [only, setOnly] = useState<"all" | "blocked" | "errors">("all");
   const nameOf = (id?: string) => (id ? state.workspaces.find((w) => w.id === id)?.name ?? id : "-");
+  const quotaNow = (id?: string) => {
+    const w = state.workspaces.find((workspace) => workspace.id === id);
+    if (!w || w.windows.length === 0) return "-";
+    return w.windows.map((window) => `${window.label} ${pct(window.remaining_percent)}`).join(" · ");
+  };
 
   const rows = useMemo(() => {
     if (only === "blocked") return activity.filter((r) => r.outcome !== "selected");
@@ -119,8 +135,11 @@ export function Activity({
               <thead>
                 <tr>
                   <th>Time</th>
+                  <th>Chat</th>
                   <th>Decision</th>
                   <th>Workspace</th>
+                  <th className="num">Tokens</th>
+                  <th>Quota now</th>
                   <th>Model</th>
                   <th className="num">Attempt</th>
                   <th className="num">First token</th>
@@ -131,6 +150,9 @@ export function Activity({
                 {rows.map((r) => (
                   <tr key={r.id}>
                     <td className="mono">{clockText(r.at)}</td>
+                    <td className="mono" title={r.thread_id ?? "No thread id reported"}>
+                      {shortThread(r.thread_id)}
+                    </td>
                     <td style={{ maxWidth: 380 }}>
                       <div className="row" style={{ gap: 6, marginBottom: 2 }}>
                         {/* A workspace was chosen and the request still failed: that is not
@@ -149,6 +171,13 @@ export function Activity({
                       <div>{r.summary}</div>
                       <Expando summary="Explanation">
                         {r.thread_id && <div className="note mono">conversation {r.thread_id}</div>}
+                        {r.total_tokens !== null && r.total_tokens !== undefined && (
+                          <div className="note mono">
+                            input {r.input_tokens?.toLocaleString() ?? 0} · cached{" "}
+                            {r.cached_input_tokens?.toLocaleString() ?? 0} · output{" "}
+                            {r.output_tokens?.toLocaleString() ?? 0} · total {r.total_tokens.toLocaleString()}
+                          </div>
+                        )}
                         {r.candidates.map((c) => (
                           <div key={c.workspace_id} className="row" style={{ gap: 8, padding: "2px 0" }}>
                             <strong style={{ minWidth: 140 }}>{nameOf(c.workspace_id)}</strong>
@@ -169,6 +198,10 @@ export function Activity({
                       </Expando>
                     </td>
                     <td>{nameOf(r.workspace_id)}</td>
+                    <td className="num" title="Input, cached input, output, and total are in the explanation">
+                      {tokens(r)}
+                    </td>
+                    <td title="Current quota, not a historical snapshot">{quotaNow(r.workspace_id)}</td>
                     <td className="mono">{r.model ?? "-"}</td>
                     <td className="num">{r.attempt}</td>
                     <td className="num">{ms(r.first_token_ms)}</td>

@@ -2,7 +2,7 @@
 // every workspace has left; what needs attention; and what was decided recently.
 
 import { useEffect, useState } from "react";
-import type { ActivityRow, Decision, State } from "./api";
+import type { ActivityRow, Decision, Rule, State } from "./api";
 import { ApiError, api } from "./api";
 import {
   Badge,
@@ -14,9 +14,9 @@ import {
   evidenceBadge,
   pct,
   reasonText,
-  untilText,
+  resetAtText,
 } from "./ui";
-import { Donut, Legend, Meter, Sparkline, SERIES_COLORS } from "./viz";
+import { Meter, Sparkline, SERIES_COLORS } from "./viz";
 import {
   IconAlert,
   IconGauge,
@@ -37,6 +37,7 @@ export function Overview({
   onNavigate,
   onEditRule,
   onReconnect,
+  reload,
 }: {
   state: State;
   activity: ActivityRow[];
@@ -44,10 +45,13 @@ export function Overview({
   onNavigate: (tab: "workspaces" | "rules" | "activity" | "settings") => void;
   onEditRule: (ruleId: string) => void;
   onReconnect: () => void;
+  reload: () => void;
 }) {
   const [model, setModel] = useState("");
   const [decision, setDecision] = useState<Decision>(state.proposed);
   const [modelError, setModelError] = useState<string | null>(null);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  const [switchingTo, setSwitchingTo] = useState<string | null>(null);
 
   // With no model chosen the state response already carries the answer. With one chosen we
   // ask the service to evaluate it: same evaluator, same snapshot, no quota consumed.
@@ -80,6 +84,37 @@ export function Overview({
   const nameOf = (id?: string) => state.workspaces.find((w) => w.id === id)?.name ?? id ?? "";
   const blocked = decision.outcome !== "selected";
   const reserveRule = state.rules.find((r) => r.kind === "reserve" && r.enabled);
+  const preferenceRule = state.rules.find((r) => r.kind === "prefer");
+  const activePreference = preferenceRule?.enabled ? preferenceRule : undefined;
+
+  const preferWorkspace = async (workspaceID: string) => {
+    const rule: Rule = preferenceRule
+      ? { ...preferenceRule, enabled: true, source_workspace_id: workspaceID }
+      : {
+          id: "",
+          kind: "prefer",
+          enabled: true,
+          priority: 0,
+          source_workspace_id: workspaceID,
+          window: { minutes: 0 },
+          comparison: "at_or_below",
+          remaining_percent: 0,
+          reset_comparison: "at_least",
+          reset_hours: 0,
+          preferred_workspace_id: "",
+          no_alternative: "stop_and_explain",
+        };
+    setSwitchingTo(workspaceID);
+    setSwitchError(null);
+    try {
+      await api.saveRule(rule);
+      reload();
+    } catch (e) {
+      setSwitchError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setSwitchingTo(null);
+    }
+  };
 
   // The headline is the service's own summary. The line under it says what is shaping that
   // answer, rather than repeating the sentence above it.
@@ -137,9 +172,26 @@ export function Overview({
             </div>
           </div>
 
-          <ErrorBox error={modelError} />
+          <ErrorBox error={modelError ?? switchError} />
 
           <div className="actions mt">
+            {state.workspaces.map((workspace) => {
+              const preferred = activePreference?.source_workspace_id === workspace.id;
+              return (
+                <button
+                  key={workspace.id}
+                  className={`btn${preferred ? " primary" : ""}`}
+                  disabled={switchingTo !== null || preferred}
+                  onClick={() => void preferWorkspace(workspace.id)}
+                >
+                  {switchingTo === workspace.id
+                    ? "Switching…"
+                    : preferred
+                      ? `${workspace.name} preferred`
+                      : `Prefer ${workspace.name}`}
+                </button>
+              );
+            })}
             {reserveRule ? (
               <button className="btn" onClick={() => onEditRule(reserveRule.id)}>
                 <IconPencil className="ico-sm" />
@@ -156,6 +208,10 @@ export function Overview({
               Preview routing
             </button>
           </div>
+          <p className="note" style={{ marginTop: 8 }}>
+            Changing the preferred account applies to new tasks immediately. Existing tasks move
+            on their next turn when that account is eligible.
+          </p>
 
           <div style={{ marginTop: 12 }}>
             <Expando summary="Why this workspace?">
@@ -189,16 +245,6 @@ export function Overview({
           </div>
         </div>
       </section>
-
-      <StatTiles state={state} />
-
-      <CostNote state={state} />
-
-      <QuotaRings state={state} />
-
-      <PoolTotals state={state} />
-
-      <Projections state={state} />
 
       <Card
         title="Accounts"
@@ -235,6 +281,12 @@ export function Overview({
           </div>
         )}
       </Card>
+
+      <StatTiles state={state} />
+
+      <CostNote state={state} />
+
+      <Projections state={state} />
 
       {state.problems.length > 0 && (
         <Card title="Needs attention" icon={<IconAlert className="ico-sm" />} tight>
@@ -437,98 +489,6 @@ function StatTiles({ state }: { state: State }) {
   );
 }
 
-/**
- * QuotaRings shows each reported quota window as a ring across all connected workspaces.
- *
- * The ring shows REMAINING, because that is what a person acts on. Windows are grouped by the
- * duration the backend reported, so a plan that exposes different windows renders correctly
- * rather than being forced into a five-hour and weekly pair.
- */
-function QuotaRings({ state }: { state: State }) {
-  const now = new Date(state.now);
-  type Ring = {
-    label: string;
-    rows: { id: string; label: string; value: number; color: string }[];
-    // The soonest reset in this window: the one a person is actually waiting on.
-    resetsAt: string | null;
-    // Workspaces that do not report this window at all. A plan without a 5-hour limit simply
-    // has none, and saying so beats leaving someone to wonder why their account vanished.
-    absent: string[];
-  };
-  const byWindow = new Map<number, Ring>();
-  state.workspaces.forEach((w, i) => {
-    w.windows.forEach((win) => {
-      const g: Ring = byWindow.get(win.minutes) ?? { label: win.label, rows: [], resetsAt: null, absent: [] };
-      if (win.resets_at && (!g.resetsAt || win.resets_at < g.resetsAt)) g.resetsAt = win.resets_at;
-      g.rows.push({
-        id: w.id,
-        label: w.name,
-        value: Math.max(0, Math.min(100, win.remaining_percent)),
-        color: SERIES_COLORS[i % SERIES_COLORS.length],
-      });
-      byWindow.set(win.minutes, g);
-    });
-  });
-
-  // Who is missing from each window, now that every window is known.
-  byWindow.forEach((g, minutes) => {
-    state.workspaces.forEach((w) => {
-      if (!w.windows.some((win) => win.minutes === minutes)) g.absent.push(w.name);
-    });
-  });
-
-  const groups = [...byWindow.entries()].sort((a, b) => a[0] - b[0]);
-  if (groups.length === 0) return null;
-
-  return (
-    <div className="acct-grid" style={{ marginBottom: 14 }}>
-      {groups.map(([minutes, g]) => {
-        const total = g.rows.length * 100;
-        const left = g.rows.reduce((acc, r) => acc + r.value, 0);
-        return (
-          <section className="card" key={minutes}>
-            <div className="card-head">
-              <h2 className="card-title">
-                <IconGauge className="ico-sm" />
-                {g.label} remaining
-              </h2>
-                {g.resetsAt && (
-                  <span className="ring-reset">
-                    <IconClock className="ico-sm" /> resets {untilText(g.resetsAt, now)}
-                  </span>
-                )}
-              </div>
-            <div className="card-body">
-              <div className="donut-row">
-                <Donut
-                  segments={g.rows}
-                  total={total}
-                  centerValue={`${Math.round(left / g.rows.length)}%`}
-                  centerLabel={g.rows.length === 1 ? "left" : "avg left"}
-                />
-                <Legend segments={g.rows} suffix="%" />
-              </div>
-              <p className="note" style={{ marginTop: 12, marginBottom: 0 }}>
-                Each ring segment is one workspace's own remaining percentage. These are not
-                added together: separate plans are separate allowances, and a combined total
-                would not mean anything.
-                {g.absent.length > 0 && (
-                  <>
-                    {" "}
-                    {g.absent.join(" and ")} {g.absent.length === 1 ? "is" : "are"} not shown here
-                    because {g.absent.length === 1 ? "its plan does" : "their plans do"} not report
-                    a {g.label} limit.
-                  </>
-                )}
-              </p>
-            </div>
-          </section>
-        );
-      })}
-    </div>
-  );
-}
-
 function AccountCard({
   w,
   now,
@@ -541,14 +501,14 @@ function AccountCard({
   isDefault: boolean;
 }) {
   return (
-    <div className="acct">
+    <div className={isNext ? "acct is-next" : "acct"}>
       <div className="acct-head">
         <div style={{ minWidth: 0 }}>
           <div className="acct-name">{w.name}</div>
           <div className="acct-plan">{w.account_id}</div>
         </div>
         <div className="row" style={{ gap: 4 }}>
-          {isNext && <Badge kind="ok">next</Badge>}
+          {isNext && <Badge kind="next">next</Badge>}
           {isDefault && (
             <Badge kind="neutral" icon={false}>
               <IconPin />
@@ -581,7 +541,10 @@ function AccountCard({
                 <Meter percent={remaining} markerPercent={marker} tone={tone} />
                 <div className="acct-win-foot">
                   <IconClock className="ico-sm" />
-                  <span>{untilText(win.resets_at, now)}</span>
+                  <strong className="acct-win-reset">{resetAtText(win.resets_at, now)}</strong>
+                  {marker !== undefined && (
+                    <span className="acct-win-threshold">Reserve threshold: {pct(marker)}</span>
+                  )}
                   {evidenceBadge(win.evidence, win.observed_at, now)}
                 </div>
               </div>
@@ -630,55 +593,6 @@ function CostNote({ state }: { state: State }) {
         )}
       </div>
     </div>
-  );
-}
-
-/**
- * describePlans renders the plan mix as something a person would say.
- *
- * plans carries raw API values ("plus", "pro"), so joining them directly produced
- * "on average across plus", which reads as a missing word rather than a plan name.
- */
-function describePlans(plans: string[], workspaces: number): string {
-  const count = `${workspaces} workspace${workspaces === 1 ? "" : "s"}`;
-  if (plans.length === 0) return count;
-  const named = plans.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" and ");
-  return `${count} on ${named}`;
-}
-
-/**
- * PoolTotals combines workspaces per window. Expressed as account-equivalents rather than as
- * a credit balance, because adding unlike plans does not produce something you can spend.
- */
-function PoolTotals({ state }: { state: State }) {
-  if (state.pool_totals.length === 0) return null;
-  return (
-    <Card title="Pool totals" icon={<IconLayers className="ico-sm" />}>
-      <div className="acct-grid">
-        {state.pool_totals.map((t) => (
-          <div className="acct" key={t.window_minutes}>
-            <div className="acct-head">
-              <div>
-                <div className="acct-name">{t.average_remaining_percent.toFixed(0)}% left on average</div>
-                <div className="acct-plan">
-                  {t.window_label} · {describePlans(t.plans, t.workspaces)}
-                </div>
-              </div>
-              {t.mixed_plans && <Badge kind="warn">mixed plans</Badge>}
-            </div>
-            <Meter percent={t.average_remaining_percent} tone={t.average_remaining_percent <= 25 ? "low" : "ok"} />
-            <p className="note" style={{ margin: 0 }}>
-              Added up, that is {t.account_equivalents.toFixed(2)} accounts&rsquo; worth of quota.
-              You cannot spend it as one pool: a conversation runs on a single workspace, so the
-              workspace with the least left still limits that conversation.
-              {t.mixed_plans
-                ? " These are different plans, so this average blends unlike allowances: one account's 50% is not the same amount of work as another's."
-                : ""}
-            </p>
-          </div>
-        ))}
-      </div>
-    </Card>
   );
 }
 
