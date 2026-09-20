@@ -29,6 +29,14 @@
 
 Nothing here requires editing a configuration file by hand.
 
+4. Create routing profiles on the Profiles screen.
+
+   Give each profile a command and optional aliases, choose an ordered fallback list, and
+   optionally pace selected workspaces toward a weekly reset target. Packaged builds include
+   `relaypool`, so `relaypool profiles`, `relaypool status`, and `relaypool <command>` all use
+   the same live service and policy as the dashboard. If the relay uses a non-default port,
+   set `CODEXRELAY_ADDR`, for example `http://127.0.0.1:7815`.
+
 ### Verification requests
 
 Setup does not send a model request on your behalf. Quota appears for a workspace after its

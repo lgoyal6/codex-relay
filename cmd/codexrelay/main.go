@@ -59,6 +59,8 @@ func main() {
 		err = cmdUninstall(args)
 	case "rules":
 		err = cmdRules(args)
+	case "profile", "relaypool":
+		err = cmdProfile(args)
 	case "doctor":
 		err = cmdDoctor(args)
 	case "version", "--version", "-v":
@@ -82,6 +84,7 @@ Usage:
   codexrelay setup      Detect Codex, preview the config change, and apply it
   codexrelay status     Show which workspace a new conversation would use, and why
   codexrelay rules      List the current rules
+  codexrelay profile    List, activate, and inspect routing profiles
   codexrelay migrate    Move over from another Codex router, explaining what you must redo
   codexrelay rollback   Undo the Codex configuration change
   codexrelay uninstall  Explain and undo everything codex-relay set up

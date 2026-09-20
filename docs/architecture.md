@@ -16,7 +16,7 @@ codex ──HTTP/SSE, WebSocket──> codexrelay :7788 ──> chatgpt.com/back
 
 | Package | Responsibility |
 |---|---|
-| `internal/policy` | The rule model and the **single** evaluator. Live admission and dashboard preview both call `Evaluate`, so a preview cannot promise something admission would not do. |
+| `internal/policy` | The rule and profile model and the **single** evaluator. Live admission and dashboard preview both call `Evaluate`, so a preview cannot promise something admission would not do. |
 | `internal/routing` | Immutable state snapshots published atomically. The decision path never touches the database. |
 | `internal/store` | SQLite. Migrations, durable thread and resource ownership, bounded history. |
 | `internal/secrets` | OS credential storage, with a real round-trip probe. Never falls back to plaintext. |
@@ -34,6 +34,12 @@ codex ──HTTP/SSE, WebSocket──> codexrelay :7788 ──> chatgpt.com/back
 `State`, a `Request` and a `time.Time`. Preview deep-copies the published snapshot, applies
 scenario overrides to the copy, and calls the same function. It cannot mutate live quota or
 ownership, and it consumes no model quota.
+
+**Profiles are data, not account-specific code.** A profile stores its command, aliases,
+workspace order, pacing inputs, default, handoff floor and disabled workspaces in SQLite.
+The dashboard edits those records and `relaypool` activates them through the guarded local
+API. The service republishes the immutable snapshot before the activation call returns, so
+the next turn and the displayed preview use the same active profile.
 
 **Ownership is required state, history is not.** Thread ownership is written
 transactionally, before any account-bound state is exposed, and a claim never steals an

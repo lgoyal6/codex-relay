@@ -19,6 +19,8 @@ web:
 ## build: compile the dashboard, then the executable for this machine
 build: web
 	go build -trimpath -ldflags '$(LDFLAGS)' -o bin/$(BINARY) ./cmd/codexrelay
+	cp scripts/relaypool bin/relaypool
+	chmod +x bin/relaypool
 
 ## test: run the Go test suite
 test:
@@ -56,7 +58,7 @@ clean:
 ##
 ## Nothing here publishes. `dist` writes to dist/ and stops.
 dist: web
-	@set -e; 	rm -rf dist; mkdir -p dist; 	for t in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do 		os=$${t%/*}; arch=$${t#*/}; ext=""; 		if [ "$$os" = "windows" ]; then ext=".exe"; fi; 		stage="dist/stage/$(BINARY)-$(VERSION)-$$os-$$arch"; 		mkdir -p "$$stage"; 		echo "building $$os/$$arch"; 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch SOURCE_DATE_EPOCH=0 			go build -trimpath -ldflags '$(LDFLAGS)' -o "$$stage/$(BINARY)$$ext" ./cmd/codexrelay; 		cp README.md LICENSE "$$stage/" 2>/dev/null || cp README.md "$$stage/"; 		cp docs/setup-and-recovery.md "$$stage/SETUP.md"; 		if [ "$$os" = "windows" ]; then 			( cd dist/stage && zip -q -r "../$(BINARY)-$(VERSION)-$$os-$$arch.zip" 				"$(BINARY)-$(VERSION)-$$os-$$arch" ); 		else 			tar -C dist/stage --numeric-owner --owner=0 --group=0 				-czf "dist/$(BINARY)-$(VERSION)-$$os-$$arch.tar.gz" 				"$(BINARY)-$(VERSION)-$$os-$$arch"; 		fi; 	done; 	rm -rf dist/stage; 	( cd dist && shasum -a 256 * > SHA256SUMS ); 	echo; ls -lh dist/; echo; cat dist/SHA256SUMS
+	@set -e; 	rm -rf dist; mkdir -p dist; 	for t in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do 		os=$${t%/*}; arch=$${t#*/}; ext=""; 		if [ "$$os" = "windows" ]; then ext=".exe"; fi; 		stage="dist/stage/$(BINARY)-$(VERSION)-$$os-$$arch"; 		mkdir -p "$$stage"; 		echo "building $$os/$$arch"; 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch SOURCE_DATE_EPOCH=0 			go build -trimpath -ldflags '$(LDFLAGS)' -o "$$stage/$(BINARY)$$ext" ./cmd/codexrelay; 		if [ "$$os" = "windows" ]; then cp scripts/relaypool.cmd "$$stage/relaypool.cmd"; else cp scripts/relaypool "$$stage/relaypool"; chmod +x "$$stage/relaypool"; fi; 		cp README.md LICENSE "$$stage/" 2>/dev/null || cp README.md "$$stage/"; 		cp docs/setup-and-recovery.md "$$stage/SETUP.md"; 		if [ "$$os" = "windows" ]; then 			( cd dist/stage && zip -q -r "../$(BINARY)-$(VERSION)-$$os-$$arch.zip" 				"$(BINARY)-$(VERSION)-$$os-$$arch" ); 		else 			tar -C dist/stage --numeric-owner --owner=0 --group=0 				-czf "dist/$(BINARY)-$(VERSION)-$$os-$$arch.tar.gz" 				"$(BINARY)-$(VERSION)-$$os-$$arch"; 		fi; 	done; 	rm -rf dist/stage; 	( cd dist && shasum -a 256 * > SHA256SUMS ); 	echo; ls -lh dist/; echo; cat dist/SHA256SUMS
 
 package-clean:
 	rm -rf dist
