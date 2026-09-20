@@ -150,10 +150,18 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 			Exclude:          []string{d.WorkspaceID},
 		})
 		if retryDecision.Outcome == policy.OutcomeSelected && retryDecision.WorkspaceID != d.WorkspaceID {
-			if retried, ok := p.retryElsewhere(w, r, retryDecision, rawBody, started, threadID, model, keyID, resp); ok {
+			if retried, retryID, retryUpstreamMS, ok := p.retryElsewhere(
+				r, d, retryDecision, rawBody, started, threadID, model, keyID, resp, upstreamMS,
+			); ok {
 				resp = retried
+				// Everything after this point describes the RETRY: the quota read off this
+				// response, the workspace reported to the client, and the credential the
+				// bytes were produced under. Keeping the refusing workspace's identity here
+				// files ws-b's usage against ws-a and makes the response header lie.
+				id = retryID
 				d = retryDecision
 				attempt = 2
+				upstreamMS = retryUpstreamMS
 				defer func() { resp.Body.Close() }()
 			}
 		}
@@ -358,41 +366,50 @@ func errorClassFor(status int) string {
 // failure the caller keeps the original refusal, so the user sees upstream's real answer
 // rather than an error invented here.
 func (p *Proxy) retryElsewhere(
-	w http.ResponseWriter, r *http.Request, d policy.Decision, rawBody []byte,
-	started time.Time, threadID, model, keyID string, first *http.Response,
-) (*http.Response, bool) {
-	// Record the refusal that caused the move, so the history shows both halves.
-	p.opt.Selector.RecordDecision(Record{
-		At: started, ThreadID: threadID, Model: model, Decision: d, APIKeyID: keyID,
-		Attempt: 1, StatusCode: first.StatusCode, ErrorClass: "quota",
-		FailurePhase: "upstream_status", Transport: "http", UpstreamStatus: first.StatusCode,
-		ErrorMessage: "upstream refused this turn on quota; retried on another workspace",
-		TotalMS:      p.opt.Clock.Now().Sub(started).Milliseconds(),
-	})
-
-	if err := p.opt.Selector.Reassign(r.Context(), threadID, d.WorkspaceID); err != nil {
-		p.opt.Logger.Warn("could not reassign after a quota refusal", "error", err)
-		return nil, false
-	}
-	id, err := p.opt.Selector.Identity(r.Context(), d.WorkspaceID)
+	r *http.Request, refused, retry policy.Decision, rawBody []byte,
+	started time.Time, threadID, model, keyID string, first *http.Response, firstUpstreamMS int64,
+) (*http.Response, Identity, int64, bool) {
+	id, err := p.opt.Selector.Identity(r.Context(), retry.WorkspaceID)
 	if err != nil {
 		p.opt.Logger.Warn("no identity for the retry workspace", "error", err)
-		return nil, false
+		return nil, Identity{}, 0, false
 	}
 
 	r.Body = io.NopCloser(bytes.NewReader(rawBody))
 	r.ContentLength = int64(len(rawBody))
 	req, err := p.buildUpstream(r, &id)
 	if err != nil {
-		return nil, false
+		return nil, Identity{}, 0, false
 	}
+	retryStarted := p.opt.Clock.Now()
 	resp, err := p.opt.HTTPClient.Do(req)
+	retryUpstreamMS := p.opt.Clock.Now().Sub(retryStarted).Milliseconds()
 	if err != nil {
 		p.opt.Logger.Warn("retry after quota refusal failed", "error", err)
-		return nil, false
+		return nil, Identity{}, 0, false
 	}
+
+	// Ownership moves only once the new workspace has actually answered, and still before a
+	// single byte reaches the client, so the binding never names a workspace that did not
+	// serve the turn. Moving it earlier meant a retry that died at Identity or transport
+	// left the conversation pointing at a workspace with none of its history.
+	if err := p.opt.Selector.Reassign(r.Context(), threadID, retry.WorkspaceID); err != nil {
+		p.opt.Logger.Warn("could not reassign after a quota refusal", "error", err)
+		resp.Body.Close()
+		return nil, Identity{}, 0, false
+	}
+
+	// Record the refusal only after the retry really produced a response and ownership moved.
+	// If setup or transport fails, the caller serves and records the original refusal once.
+	p.opt.Selector.RecordDecision(Record{
+		At: started, ThreadID: threadID, Model: model, Decision: refused, APIKeyID: keyID,
+		Attempt: 1, StatusCode: first.StatusCode, ErrorClass: "quota",
+		FailurePhase: "upstream_status", Transport: "http", UpstreamStatus: first.StatusCode,
+		ErrorMessage: "upstream refused this turn on quota; retried on another workspace",
+		TotalMS:      p.opt.Clock.Now().Sub(started).Milliseconds(), UpstreamMS: firstUpstreamMS,
+	})
 	first.Body.Close()
-	return resp, true
+	return resp, id, retryUpstreamMS, true
 }
 
 // phaseFor says how far a turn got, which the status code alone cannot express. A 200 that
