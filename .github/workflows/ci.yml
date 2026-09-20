@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build dashboard
+        working-directory: web
+        run: npm ci && npm run build
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Build
+        run: go build ./cmd/codexrelay
+
+  credential-store:
+    name: Credential store (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install Linux Secret Service
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y dbus-x11 gnome-keyring
+      - name: Verify Linux Secret Service round trip
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          dbus-run-session -- bash -euo pipefail -c '
+            eval "$(printf "%s\n" codex-relay-ci | gnome-keyring-daemon --unlock)"
+            export CODEXRELAY_REQUIRE_OS_KEYRING=1
+            go test -count=1 ./internal/secrets -run TestOSStoreRoundTripsARealisticCredential
+          '
+      - name: Verify native credential-store round trip
+        if: runner.os != 'Linux'
+        env:
+          CODEXRELAY_REQUIRE_OS_KEYRING: "1"
+        run: go test -count=1 ./internal/secrets -run TestOSStoreRoundTripsARealisticCredential

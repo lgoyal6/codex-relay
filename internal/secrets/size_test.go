@@ -22,10 +22,7 @@ func realisticCredential() Credential {
 }
 
 func TestOSStoreRoundTripsARealisticCredential(t *testing.T) {
-	s := NewOS()
-	if h := s.Probe(); !h.OK {
-		t.Skipf("credential store unavailable here: %s", h.Detail)
-	}
+	s := requireOSStore(t)
 	const ref = "realistic-size-test"
 	t.Cleanup(func() { _ = s.Delete(ref) })
 
@@ -49,10 +46,7 @@ func TestOSStoreRoundTripsARealisticCredential(t *testing.T) {
 // TestOSStoreHandlesSizesAcrossTheChunkBoundary walks sizes either side of the chunk size,
 // because off-by-one splitting is the obvious way to break this.
 func TestOSStoreHandlesSizesAcrossTheChunkBoundary(t *testing.T) {
-	s := NewOS()
-	if h := s.Probe(); !h.OK {
-		t.Skipf("credential store unavailable here: %s", h.Detail)
-	}
+	s := requireOSStore(t)
 	const ref = "chunk-boundary-test"
 	t.Cleanup(func() { _ = s.Delete(ref) })
 
@@ -74,10 +68,7 @@ func TestOSStoreHandlesSizesAcrossTheChunkBoundary(t *testing.T) {
 // TestShrinkingACredentialLeavesNoStaleTail: a long credential replaced by a short one must
 // not leave orphan chunks that a later read could splice back on.
 func TestShrinkingACredentialLeavesNoStaleTail(t *testing.T) {
-	s := NewOS()
-	if h := s.Probe(); !h.OK {
-		t.Skipf("credential store unavailable here: %s", h.Detail)
-	}
+	s := requireOSStore(t)
 	const ref = "shrink-test"
 	t.Cleanup(func() { _ = s.Delete(ref) })
 
@@ -100,10 +91,7 @@ func TestShrinkingACredentialLeavesNoStaleTail(t *testing.T) {
 
 // TestDeleteRemovesEveryChunk: a removed workspace must leave nothing behind in the OS store.
 func TestDeleteRemovesEveryChunk(t *testing.T) {
-	s := NewOS()
-	if h := s.Probe(); !h.OK {
-		t.Skipf("credential store unavailable here: %s", h.Detail)
-	}
+	s := requireOSStore(t)
 	const ref = "delete-chunks-test"
 	if err := s.Set(ref, realisticCredential()); err != nil {
 		t.Fatalf("set: %v", err)
