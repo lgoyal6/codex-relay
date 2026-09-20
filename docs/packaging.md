@@ -11,12 +11,14 @@
 | Linux arm64, amd64 | `codexrelay-<version>-linux-<arch>.tar.gz` |
 | Windows arm64, amd64 | `codexrelay-<version>-windows-<arch>.zip` |
 
-Each archive contains the single executable, `README.md` and `SETUP.md`. `dist/SHA256SUMS`
-carries the checksums.
+Each archive contains the `codexrelay` executable, a tiny `relaypool` command wrapper,
+`README.md` and `SETUP.md`. Windows receives `relaypool.cmd`; macOS and Linux receive the
+POSIX wrapper. `dist/SHA256SUMS` carries the checksums.
 
 The build is `CGO_ENABLED=0` and `-trimpath`, so there is no C toolchain dependency and no
 build-machine paths in the binary. The dashboard is compiled by Vite and embedded, so an end
-user needs neither Node nor any runtime beyond the executable itself.
+user needs neither Node nor another application runtime. The wrapper only launches the
+adjacent `codexrelay` executable with its `profile` subcommand.
 
 Verified on 2026-09-11: the `darwin-arm64` archive was extracted and run. It reported its
 version, probed macOS Keychain successfully, served the embedded dashboard on a loopback

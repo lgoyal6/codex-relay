@@ -12,8 +12,12 @@ credential store.
 ## What it does
 
 - Connects one or more ChatGPT workspaces, each with its own independent browser sign-in.
-- Chooses which workspace serves each turn, using rules you configure in the dashboard, and
-  explains every choice.
+- Chooses which workspace serves each turn, using rules and reusable routing profiles you
+  configure in the dashboard, and explains every choice.
+- Turns a complete routing strategy into a custom command such as `relaypool mine` or
+  `relaypool weekend`. Commands and aliases are profile data, not hardcoded account names.
+- Can pace selected workspaces toward a chosen amount of weekly quota remaining at reset,
+  using an overflow workspace while they are on schedule.
 - Shows per-workspace quota with the reserve threshold marked on the same bar, and labels a
   reading that is stale or missing instead of guessing.
 - Keeps conversation ownership across restarts. Between turns, an explicit preference can
@@ -36,7 +40,7 @@ Requires Go 1.25+ to build, and Node 20+ to compile the dashboard. Node is a con
 build dependency only.
 
 ```
-make build          # compiles the dashboard, then the executable, into bin/
+make build          # compiles the dashboard, codexrelay, and the relaypool wrapper into bin/
 ./bin/codexrelay setup   # detects Codex, previews the config change, applies it
 ./bin/codexrelay serve   # runs the service and dashboard on 127.0.0.1:7788
 ```
@@ -54,12 +58,23 @@ Open the dashboard at the address `serve` prints, then connect a workspace.
 | `codexrelay setup` | Detect Codex, preview the configuration change, apply it |
 | `codexrelay status` | Which workspace a new conversation would use, and why |
 | `codexrelay rules` | List the current rules |
+| `codexrelay profile status` | Active profile, current decision, quota and pacing status |
+| `codexrelay profile profiles` | List every custom profile command and alias |
+| `codexrelay profile <command>` | Activate a profile through the running local service |
+| `relaypool <command>` | Short form of `codexrelay profile <command>` from packaged builds |
 | `codexrelay rollback` | Undo the Codex configuration change |
 | `codexrelay doctor` | Redacted diagnostic report |
 | `codexrelay version` | Print the version |
 
 Every dashboard action has a CLI equivalent. Neither requires the other: closing the
 dashboard does not affect routing.
+
+Create and edit profiles on the dashboard's Profiles screen. A priority profile tries its
+ordered workspaces after hard eligibility and reserve checks. A pace profile evaluates the
+reported weekly windows on every turn. If a paced workspace is above its linear target, the
+one furthest above target is preferred; otherwise the configured overflow workspace is
+preferred. An eligible profile preference can move an existing conversation between turns,
+but it never replays a turn after output starts.
 
 ## How it connects to Codex
 
