@@ -54,6 +54,33 @@ func TestOwnerAboveThresholdStaysPut(t *testing.T) {
 	}
 }
 
+// An explicit preference is the user's account switch. It applies to the next turn of an
+// existing conversation, not only to conversations created after the rule changed.
+func TestPreferenceHandsExistingConversationToPreferredWorkspace(t *testing.T) {
+	st := handoffState(10, 0) // quota-floor handoff disabled to isolate preference semantics
+	st.Rules = []Rule{{ID: "prefer-work", Kind: KindPrefer, Enabled: true, SourceWorkspaceID: "work"}}
+
+	d := Evaluate(st, Request{OwnerWorkspaceID: "personal"}, base)
+	if d.Outcome != OutcomeSelected || d.WorkspaceID != "work" || d.Primary != ReasonHandoff {
+		t.Fatalf("got %s/%s -> %q, want selected/handed_off -> work", d.Outcome, d.Primary, d.WorkspaceID)
+	}
+	if !contains(d.Summary, "rule now prefers") {
+		t.Fatalf("summary does not explain the preference handoff: %q", d.Summary)
+	}
+}
+
+func TestUnavailablePreferenceDoesNotMoveHealthyOwner(t *testing.T) {
+	st := handoffState(10, 0)
+	st.Workspaces["work"].Paused = true
+	st.Rules = []Rule{{ID: "prefer-work", Kind: KindPrefer, Enabled: true, SourceWorkspaceID: "work"}}
+
+	d := Evaluate(st, Request{OwnerWorkspaceID: "personal"}, base)
+	if d.Outcome != OutcomeSelected || d.WorkspaceID != "personal" || d.Primary != ReasonOwnerBound {
+		t.Fatalf("got %s/%s -> %q, want healthy owner to stay while preference is unavailable",
+			d.Outcome, d.Primary, d.WorkspaceID)
+	}
+}
+
 // Exactly at the threshold hands off: the comparison is <=, pinned here in both directions.
 func TestThresholdBoundaryIsInclusive(t *testing.T) {
 	if d := Evaluate(handoffState(98, 2), Request{OwnerWorkspaceID: "personal"}, base); d.WorkspaceID != "work" {

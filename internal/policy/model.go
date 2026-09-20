@@ -159,7 +159,7 @@ func (r Rule) Validate() error {
 func (r Rule) Sentence(name func(string) string) string {
 	switch r.Kind {
 	case KindPrefer:
-		return fmt.Sprintf("Prefer %s for new conversations.", name(r.SourceWorkspaceID))
+		return fmt.Sprintf("Prefer %s for conversations. Existing conversations move on their next turn when it is eligible.", name(r.SourceWorkspaceID))
 	case KindReserve:
 		tail := "stop and explain"
 		if r.NoAlternative == UseProtected {
