@@ -25,11 +25,10 @@ The client binary Codex Desktop ships was run against codex-relay with an isolat
 `CODEX_HOME` and completed a routed turn served by the pooled identity, identifying itself
 upstream as `Codex Desktop/0.153.4 (Mac OS 26.5.2; arm64) dumb (codex_exec; 0.153.4)` (live).
 
-That establishes the **bundled client version** works through the pool. It does **not**
-establish that the Desktop application's own integration works: whether the GUI reads
-`~/.codex/config.toml`, whether it would pick up our provider entry, and how it behaves on
-sign-in were not tested, because testing them requires changing a live installation. Treat
-Desktop GUI integration as unverified.
+The Desktop application itself has now also sent real tasks through the configured provider
+entry on this host. That establishes generation routing from the GUI. It does not establish
+account-bound MCP file upload behavior or every Desktop sign-in and recovery path; those
+remain separate limits below.
 
 ## Integration point
 
@@ -158,10 +157,11 @@ Email is a property of an account, never a key: one account can hold several wor
 Codex requests `id_token_add_organizations=true` but does not parse an organizations claim
 (source), so names come from `accounts/check`.
 
-The client pins a running session to its startup `account_id` plus `chatgpt_user_id` and
-ignores a reloaded auth that does not match (source). Codex itself will not follow a
-mid-session identity change, which independently supports the rule that owner-bound
-conversations do not migrate.
+The client pins its own sign-in session to its startup `account_id` plus `chatgpt_user_id`
+and ignores a reloaded auth that does not match (source). That does not pin a proxied
+conversation to one relay workspace: the Responses request resends the conversation on each
+turn, so codex-relay can select a different eligible credential between turns. It never
+replays a turn after response output has started.
 
 ## Which requests actually reach codex-relay
 
@@ -279,7 +279,7 @@ These are open dependencies, not oversights.
 | Live OAuth against `auth.openai.com` | **unverified.** Requires the user's real sign-in. The flow, PKCE, callback and claim parsing are covered by tests against a fake issuer (simulated). |
 | Live refresh-token rotation against the real issuer | **unverified.** Rotation, per-chain serialization and persistence of the rotated token are covered against a fake issuer (simulated). |
 | Real `chatgpt.com` behaviour for compaction, tool calls, file uploads and resume under pooling | **unverified.** |
-| Codex Desktop integration | **unverified.** Not tested at all; no claim is made. |
+| Codex Desktop generation routing | **live.** The bundled client has sent real turns through codex-relay on this host. Account-bound MCP file upload behavior remains unverified. |
 | Windows credential storage and installation | **unverified.** The binary cross-compiles; that is not evidence the credential store works. |
 | Linux Secret Service storage and installation | **unverified.** Same. |
 | Windows native versus WSL | **unverified.** A Codex installed inside WSL has its own `~/.codex` and must be configured from inside WSL. `codexrelay doctor` says so on Windows, but this has not been tested. |

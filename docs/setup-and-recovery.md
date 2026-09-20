@@ -41,7 +41,9 @@ guess.
 Use **Reconnect** on the Workspaces screen, or on the problem row on Overview.
 
 Reconnect replaces the stored credential for that workspace with a fresh browser sign-in.
-Conversations already bound to that workspace keep their owner and keep working.
+Conversations keep their owner unless an explicit preference now selects another eligible
+workspace or an automatic handoff condition applies. If the credential is unavailable when
+a turn starts, codex-relay can hand the conversation to an eligible alternative instead.
 
 You will need this when:
 
@@ -59,7 +61,7 @@ They are deliberately different.
 | | Pause | Remove |
 |---|---|---|
 | New conversations | refused | refused |
-| Existing bound conversations | keep working | can no longer continue |
+| Existing bound conversations | hand off to an eligible alternative, or block if none is available | can no longer continue on the removed credential |
 | Stored sign-in | kept | **deleted from your OS credential store** |
 | Reversible | yes, click Resume | no, you must sign in again |
 
@@ -142,6 +144,6 @@ produces the same report and can download it as JSON.
 |---|---|
 | Codex still uses your old provider | `codexrelay doctor` -> `codex.managed_by_codexrelay`. If false, setup did not take effect. |
 | "codex-relay does not recognise this request" | A Codex version newer than this build is calling an endpoint we have not classified. It fails closed on purpose: no pooled credential was attached. Report the path from Diagnostics. |
-| A conversation is blocked | Overview -> Needs attention. The explanation names the rule and shows the exact comparison. Starting a new conversation is usually the answer, because an owner-bound conversation cannot safely move. |
+| A conversation is blocked | Overview -> Needs attention. The explanation names the rule and shows the exact comparison. Restore the owner or make another workspace eligible; codex-relay hands off between turns when an eligible alternative exists. |
 | Quota never appears | It appears after that workspace's first routed turn. If a workspace never wins a routing decision, it will have no readings. |
 | Dashboard says the service is unreachable | The dashboard is only a subscriber. Routing continues without it. Check that `codexrelay serve` is still running. |
