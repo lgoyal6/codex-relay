@@ -1,4 +1,32 @@
-# codex-pool vs codex-lb: proxy overhead
+# codex-relay vs codex-lb
+
+The products have different scopes. codex-lb is a multi-user service with remote deployment,
+operator controls and deep reporting. codex-relay is a loopback-only personal router shipped
+as one executable. Feature count is therefore not a useful parity target.
+
+## Product capability decisions
+
+| Capability | codex-relay | codex-lb | Decision |
+|---|---|---|---|
+| Per-account quota and reset time | Individual account cards with current reported windows | Yes | Required and present |
+| Explicit account preference | Dashboard and `relaypool`; eligible existing tasks switch between turns | Yes | Required and present |
+| Conversation ownership and safe failover | Durable ownership, reserve policy, pre-output quota retry | Yes | Required and present |
+| Explainable request log | Time, task ID, account, model, tokens, current quota, latency, outcome and reason | Richer configurable log | Required core is present |
+| Token and API-equivalent cost trends | Bounded activity plus durable hourly rollups | Richer daily reports | Present at personal-tool depth |
+| CSV export | No | Yes | Useful later |
+| Historical quota snapshots per turn | Current quota is labelled `now`; history is not stored | More reporting | Useful later, but must use a real snapshot schema |
+| Tokens per second and queue-wait breakdown | Total and first-token timing only | Yes | Useful later if a concrete diagnosis needs it |
+| Model and user-agent distribution reports | Model is recorded per turn; no distribution UI | Yes | Model report useful later; user-agent report low value for one local client |
+| Remote users, roles and guest access | No, loopback session token only | Yes | Intentionally out of scope |
+| PostgreSQL, Docker, Helm and Kubernetes | No, local SQLite and one binary | Yes | Intentionally out of scope |
+| Distributed egress and fleet operations | No | Yes | Intentionally out of scope |
+
+The release bar is correctness, privacy, recovery and clear local observability. CSV export,
+historical quota snapshots and a model breakdown are reasonable follow-ups. Multi-user RBAC,
+cluster deployment and distributed egress would turn codex-relay into a second codex-lb and
+are not planned.
+
+## Proxy overhead
 
 Measured 2026-09-12. Both proxies, same mock upstream (127.0.0.1:8801), same harness
 (`bench.py`), same request body, arms interleaved so host drift hits both equally.

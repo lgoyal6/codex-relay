@@ -12,11 +12,16 @@ credential store.
 ## What it does
 
 - Connects one or more ChatGPT workspaces, each with its own independent browser sign-in.
-- Chooses which workspace serves a new conversation, using rules you configure in the
-  dashboard, and explains every choice.
+- Chooses which workspace serves each turn, using rules you configure in the dashboard, and
+  explains every choice.
 - Shows per-workspace quota with the reserve threshold marked on the same bar, and labels a
   reading that is stale or missing instead of guessing.
-- Keeps an existing conversation on the workspace that already owns it, across restarts.
+- Keeps conversation ownership across restarts. Between turns, an explicit preference can
+  move an existing conversation to the preferred eligible workspace; automatic handoff also
+  applies when its owner is nearly exhausted, paused, signed out, protected by a rule or
+  unable to serve the requested model.
+- Retries a quota refusal on another workspace only before any output reaches the client;
+  once output starts, it never replays the turn.
 - Forwards HTTP/SSE and WebSocket traffic, including cancellation.
 - Records a bounded local history of decisions, with an explanation you can expand.
 
@@ -83,6 +88,9 @@ has not been verified is stated in [docs/compatibility.md](docs/compatibility.md
 - [docs/setup-and-recovery.md](docs/setup-and-recovery.md) - setup, reconnect, migration from
   codex-lb, rollback and uninstall.
 - [docs/architecture.md](docs/architecture.md) - how the pieces fit together and why.
+- [CONTRIBUTING.md](CONTRIBUTING.md) - local checks and pull-request rules.
+- [SECURITY.md](SECURITY.md) - private reporting and supported security boundaries.
+- [docs/releasing.md](docs/releasing.md) - tagged releases and macOS signing requirements.
 
 ## Privacy and safety
 
@@ -90,6 +98,7 @@ has not been verified is stated in [docs/compatibility.md](docs/compatibility.md
   an account is refused rather than downgraded to a plaintext file.
 - The dashboard binds to loopback and requires a session token, a literal loopback `Host`,
   and a loopback `Origin`. A hostname that merely resolves to 127.0.0.1 is refused.
-- History never contains prompt text, conversation bodies or tokens. The diagnostic export
-  is redacted by design.
+- History never contains prompt text, conversation bodies, credentials or access tokens. It
+  stores the model-reported input, cached-input, output and total token counts for each turn.
+  The diagnostic export is redacted by design.
 - codex-relay never reads, imports or competes over the refresh token Codex holds.

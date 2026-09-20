@@ -54,8 +54,8 @@ result.
 Six targets compile. That is evidence about the compiler, not about the platform.
 
 - **macOS**: run, verified live, including Keychain.
-- **Linux**: run, verified live in a Debian bookworm container, including Secret Service
-  credential storage both present and absent. See `materials/e2e/linux/`.
+- **Linux**: archives built, but not executed on a Linux host. Secret Service credential
+  storage and installation remain unverified.
 - **Windows**: **never executed.** No Windows machine has been reachable from this build. The
   binary compiles and nothing more is claimed. `docs/compatibility.md` lists exactly what a
   Windows run would need to answer.
