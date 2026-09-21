@@ -304,6 +304,16 @@ export function reasonText(code: string): string {
       return "Reserve rule has no alternative";
     case "quota_exhausted":
       return "Quota exhausted";
+    case "preferred_by_profile":
+      return "Preferred by profile";
+    case "disabled_by_profile":
+      return "Disabled by profile";
+    case "weekly_pace":
+      return "Weekly pace";
+    case "pace_overflow":
+      return "Pace overflow";
+    case "subagent_helper":
+      return "Luna helper";
     default:
       return code;
   }
