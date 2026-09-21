@@ -193,6 +193,7 @@ type ActivityRow struct {
 	At            time.Time          `json:"at"`
 	ThreadID      string             `json:"thread_id,omitempty"`
 	Model         string             `json:"model,omitempty"`
+	RequestKind   string             `json:"request_kind"`
 	Outcome       string             `json:"outcome"`
 	WorkspaceID   string             `json:"workspace_id,omitempty"`
 	WorkspaceName string             `json:"workspace_name,omitempty"`
@@ -248,7 +249,7 @@ func (s *Service) Activity(ctx context.Context, limit int) ([]ActivityRow, error
 		       d.first_token_ms, d.total_ms, d.error_class,
 		       d.input_tokens, d.cached_input_tokens, d.output_tokens, d.total_tokens,
 		       d.error_message, d.failure_phase, d.upstream_status, d.transport, d.upstream_ms,
-		       d.quota_snapshot_json
+		       d.quota_snapshot_json, d.request_kind
 		FROM decisions d
 		LEFT JOIN workspaces w ON w.id = d.workspace_id
 		LEFT JOIN accounts a ON a.id = w.account_id
@@ -261,13 +262,13 @@ func (s *Service) Activity(ctx context.Context, limit int) ([]ActivityRow, error
 	for rows.Next() {
 		var r ActivityRow
 		var at, detail string
-		var thread, model, ws, wsName, email, plan, errClass, errMsg, phase, transport, quotaJSON sql.NullString
+		var thread, model, ws, wsName, email, plan, errClass, errMsg, phase, transport, quotaJSON, requestKind sql.NullString
 		var status, first, total, input, cached, output, tokens, upStatus, upMS sql.NullInt64
 		if err := rows.Scan(&r.ID, &at, &thread, &model, &r.Outcome, &ws,
 			&wsName, &email, &plan, &r.Reason, &r.Summary,
 			&detail, &r.Attempt, &status, &first, &total, &errClass,
 			&input, &cached, &output, &tokens,
-			&errMsg, &phase, &upStatus, &transport, &upMS, &quotaJSON); err != nil {
+			&errMsg, &phase, &upStatus, &transport, &upMS, &quotaJSON, &requestKind); err != nil {
 			return nil, err
 		}
 		r.ErrorMessage, r.FailurePhase, r.Transport = errMsg.String, phase.String, transport.String
@@ -278,6 +279,10 @@ func (s *Service) Activity(ctx context.Context, limit int) ([]ActivityRow, error
 		}
 		r.At, _ = time.Parse(time.RFC3339Nano, at)
 		r.ThreadID, r.Model, r.WorkspaceID, r.ErrorClass = thread.String, model.String, ws.String, errClass.String
+		r.RequestKind = requestKind.String
+		if r.RequestKind == "" {
+			r.RequestKind = "parent"
+		}
 		r.WorkspaceName, r.AccountEmail, r.AccountPlan = wsName.String, email.String, plan.String
 		r.StatusCode = int(status.Int64)
 		if first.Valid {

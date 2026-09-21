@@ -350,8 +350,8 @@ func (s *Service) writeDecision(rec proxy.Record) error {
 			detail_json, state_version, attempt, status_code, first_token_ms, total_ms, error_class,
 			input_tokens, cached_input_tokens, output_tokens, total_tokens,
 			error_message, failure_phase, upstream_status, transport, upstream_ms, api_key_id,
-			quota_snapshot_json)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			quota_snapshot_json, request_kind)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		rec.At.Format(time.RFC3339Nano), nullIfEmpty(rec.ThreadID), nullIfEmpty(rec.Model),
 		string(rec.Decision.Outcome), nullIfEmpty(rec.Decision.WorkspaceID),
 		string(rec.Decision.Primary), rec.Decision.Summary, string(detail),
@@ -360,7 +360,7 @@ func (s *Service) writeDecision(rec proxy.Record) error {
 		inTok, cachedTok, outTok, totTok,
 		nullIfEmpty(rec.ErrorMessage), nullIfEmpty(rec.FailurePhase),
 		nullIfZero(rec.UpstreamStatus), nullIfEmpty(rec.Transport),
-		nullIfUnmeasured(rec.UpstreamMS), nullIfEmpty(rec.APIKeyID), quotaJSON)
+		nullIfUnmeasured(rec.UpstreamMS), nullIfEmpty(rec.APIKeyID), quotaJSON, requestKind(rec.RequestKind))
 	if err != nil {
 		return err
 	}
@@ -385,6 +385,13 @@ func (s *Service) writeDecision(rec proxy.Record) error {
 	_, err = s.DB.SQL().Exec(
 		`DELETE FROM decisions WHERE id NOT IN (SELECT id FROM decisions ORDER BY id DESC LIMIT ?)`, historyLimit)
 	return err
+}
+
+func requestKind(kind string) string {
+	if kind == "subagent" {
+		return kind
+	}
+	return "parent"
 }
 
 // DefaultHandoffBelowPercent is the quota floor at which an owner-bound conversation moves

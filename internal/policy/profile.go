@@ -22,20 +22,23 @@ var profileCommandPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 // RoutingProfile is one named, reusable routing configuration. Its command and aliases are
 // data, not hardcoded vocabulary, so the dashboard and relaypool resolve the same profiles.
 type RoutingProfile struct {
-	ID                     string      `json:"id"`
-	Name                   string      `json:"name"`
-	Command                string      `json:"command"`
-	Aliases                []string    `json:"aliases"`
-	Mode                   ProfileMode `json:"mode"`
-	PriorityWorkspaceIDs   []string    `json:"priority_workspace_ids"`
-	PaceWorkspaceIDs       []string    `json:"pace_workspace_ids"`
-	OverflowWorkspaceID    string      `json:"overflow_workspace_id,omitempty"`
-	TargetRemainingPercent float64     `json:"target_remaining_percent"`
-	DefaultWorkspaceID     string      `json:"default_workspace_id,omitempty"`
-	HandoffBelowPercent    float64     `json:"handoff_below_percent"`
-	DisabledWorkspaceIDs   []string    `json:"disabled_workspace_ids"`
-	CreatedAt              time.Time   `json:"created_at,omitempty"`
-	UpdatedAt              time.Time   `json:"updated_at,omitempty"`
+	ID                        string      `json:"id"`
+	Name                      string      `json:"name"`
+	Command                   string      `json:"command"`
+	Aliases                   []string    `json:"aliases"`
+	Mode                      ProfileMode `json:"mode"`
+	PriorityWorkspaceIDs      []string    `json:"priority_workspace_ids"`
+	PaceWorkspaceIDs          []string    `json:"pace_workspace_ids"`
+	OverflowWorkspaceID       string      `json:"overflow_workspace_id,omitempty"`
+	TargetRemainingPercent    float64     `json:"target_remaining_percent"`
+	DefaultWorkspaceID        string      `json:"default_workspace_id,omitempty"`
+	HandoffBelowPercent       float64     `json:"handoff_below_percent"`
+	DisabledWorkspaceIDs      []string    `json:"disabled_workspace_ids"`
+	SubagentHelperEnabled     bool        `json:"subagent_helper_enabled"`
+	SubagentHelperWorkspaceID string      `json:"subagent_helper_workspace_id,omitempty"`
+	SubagentHelperModel       string      `json:"subagent_helper_model,omitempty"`
+	CreatedAt                 time.Time   `json:"created_at,omitempty"`
+	UpdatedAt                 time.Time   `json:"updated_at,omitempty"`
 }
 
 func NormalizeProfileCommand(s string) string {
@@ -45,6 +48,7 @@ func NormalizeProfileCommand(s string) string {
 func (p *RoutingProfile) Normalize() {
 	p.Name = strings.TrimSpace(p.Name)
 	p.Command = NormalizeProfileCommand(p.Command)
+	p.SubagentHelperModel = strings.TrimSpace(p.SubagentHelperModel)
 	p.Aliases = normalizeCommands(p.Aliases)
 	p.PriorityWorkspaceIDs = uniqueStrings(p.PriorityWorkspaceIDs)
 	p.PaceWorkspaceIDs = uniqueStrings(p.PaceWorkspaceIDs)
@@ -111,6 +115,7 @@ func (p RoutingProfile) Validate(known map[string]bool) error {
 	allIDs := append([]string{}, p.PriorityWorkspaceIDs...)
 	allIDs = append(allIDs, p.PaceWorkspaceIDs...)
 	allIDs = append(allIDs, p.OverflowWorkspaceID, p.DefaultWorkspaceID)
+	allIDs = append(allIDs, p.SubagentHelperWorkspaceID)
 	allIDs = append(allIDs, p.DisabledWorkspaceIDs...)
 	for _, id := range allIDs {
 		if id != "" && !known[id] {
@@ -136,9 +141,20 @@ func (p RoutingProfile) Validate(known map[string]bool) error {
 			return fmt.Errorf("pace target must be between 0 and 100 percent")
 		}
 	}
+	if p.SubagentHelperEnabled {
+		if p.SubagentHelperWorkspaceID == "" {
+			return fmt.Errorf("Luna helpers need a helper workspace")
+		}
+		if p.SubagentHelperModel == "" {
+			return fmt.Errorf("Luna helpers need a helper model")
+		}
+	}
 	disabled := map[string]bool{}
 	for _, id := range p.DisabledWorkspaceIDs {
 		disabled[id] = true
+	}
+	if p.SubagentHelperEnabled && disabled[p.SubagentHelperWorkspaceID] {
+		return fmt.Errorf("the helper workspace cannot also be disabled")
 	}
 	available := 0
 	for id := range known {
@@ -153,19 +169,24 @@ func (p RoutingProfile) Validate(known map[string]bool) error {
 }
 
 func (p RoutingProfile) Sentence(nameOf func(string) string) string {
+	helper := ""
+	if p.SubagentHelperEnabled {
+		helper = fmt.Sprintf(" Delegated %s subagents prefer %s and fall back to this profile when unavailable.",
+			p.SubagentHelperModel, nameOf(p.SubagentHelperWorkspaceID))
+	}
 	if p.Mode == ProfilePace {
 		names := make([]string, 0, len(p.PaceWorkspaceIDs))
 		for _, id := range p.PaceWorkspaceIDs {
 			names = append(names, nameOf(id))
 		}
-		return fmt.Sprintf("Pace %s toward %.4g%% remaining at each weekly reset. Use %s as overflow while they are on schedule.",
-			strings.Join(names, ", "), p.TargetRemainingPercent, nameOf(p.OverflowWorkspaceID))
+		return fmt.Sprintf("Pace %s toward %.4g%% remaining at each weekly reset. Use %s as overflow while they are on schedule.%s",
+			strings.Join(names, ", "), p.TargetRemainingPercent, nameOf(p.OverflowWorkspaceID), helper)
 	}
 	names := make([]string, 0, len(p.PriorityWorkspaceIDs))
 	for _, id := range p.PriorityWorkspaceIDs {
 		names = append(names, nameOf(id))
 	}
-	return "Try workspaces in this order: " + strings.Join(names, " -> ") + "."
+	return "Try workspaces in this order: " + strings.Join(names, " -> ") + "." + helper
 }
 
 type PaceStanding struct {

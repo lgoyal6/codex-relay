@@ -57,12 +57,14 @@ type Selector interface {
 // Record is one activity row. It deliberately carries no request body, no prompt text and
 // no credential material.
 type Record struct {
-	At         time.Time
-	ThreadID   string
-	Model      string
-	Decision   policy.Decision
-	Attempt    int
-	StatusCode int
+	At       time.Time
+	ThreadID string
+	Model    string
+	// RequestKind is "parent" or "subagent", derived only from Codex's request metadata.
+	RequestKind string
+	Decision    policy.Decision
+	Attempt     int
+	StatusCode  int
 	// FirstTokenMS is -1 when no byte was ever received, and >= 0 when measured. A measured
 	// zero is a real reading on a fast local upstream, not a missing one.
 	FirstTokenMS int64

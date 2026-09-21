@@ -46,6 +46,9 @@ func TestPlanUsesAModelProviderNotChatgptBaseUrl(t *testing.T) {
 	if !strings.Contains(p.After, `model_provider = "codexrelay"`) {
 		t.Fatal("the plan must select our model provider")
 	}
+	if !strings.Contains(p.After, `default_subagent_model = "gpt-5.6-luna"`) {
+		t.Fatal("the plan must make delegated helpers use Luna")
+	}
 	if !strings.Contains(p.After, `base_url = "http://127.0.0.1:7788/backend-api/codex"`) {
 		t.Fatalf("provider base_url is wrong:\n%s", p.After)
 	}
@@ -56,6 +59,25 @@ func TestPlanUsesAModelProviderNotChatgptBaseUrl(t *testing.T) {
 	// supported configuration must not rely on it.
 	if strings.Contains(p.After, "chatgpt_base_url") {
 		t.Fatal("the minimal configuration must not depend on chatgpt_base_url")
+	}
+}
+
+func TestPlanReplacesAnExistingTopLevelSubagentModelWithoutDuplicateKeys(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.toml")
+	write(t, cfg, "default_subagent_model = \"gpt-old\"\n\n[mcp_servers.tool]\ncommand = \"tool\"\n")
+	p, err := BuildPlan(cfg, "127.0.0.1:7788", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(p.After, `default_subagent_model = "gpt-5.6-luna"`) != 1 {
+		t.Fatalf("Luna default count is not one:\n%s", p.After)
+	}
+	if !strings.Contains(p.After, `# codex-relay disabled this line: default_subagent_model = "gpt-old"`) {
+		t.Fatalf("the previous setting was not preserved as a comment:\n%s", p.After)
+	}
+	if !strings.Contains(p.Diff, `- default_subagent_model = "gpt-old"`) {
+		t.Fatalf("the setup preview did not show the replaced helper model:\n%s", p.Diff)
 	}
 }
 

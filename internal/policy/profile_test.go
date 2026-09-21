@@ -90,6 +90,52 @@ func TestPriorityProfileUsesCustomOrder(t *testing.T) {
 	}
 }
 
+func TestSubagentHelperOverridesParentOrderOnlyForDelegatedLuna(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	st := profileState(now, 80, 80)
+	st.ActiveProfile = &RoutingProfile{
+		ID: "helpers", Name: "Hers first", Command: "hers", Mode: ProfilePriority,
+		PriorityWorkspaceIDs: []string{"hers", "mine", "free"}, HandoffBelowPercent: 2,
+		SubagentHelperEnabled: true, SubagentHelperWorkspaceID: "free", SubagentHelperModel: "gpt-5.6-luna",
+	}
+	parent := Evaluate(st, Request{Model: "gpt-5.6-luna"}, now)
+	if parent.WorkspaceID != "hers" || parent.Primary != ReasonProfilePreferred {
+		t.Fatalf("ordinary Luna parent selected %q/%s", parent.WorkspaceID, parent.Primary)
+	}
+	helper := Evaluate(st, Request{Model: "gpt-5.6-luna", IsSubagent: true}, now)
+	if helper.WorkspaceID != "free" || helper.Primary != ReasonSubagentHelper {
+		t.Fatalf("Luna subagent selected %q/%s: %s", helper.WorkspaceID, helper.Primary, helper.Summary)
+	}
+	otherModel := Evaluate(st, Request{Model: "gpt-5.6-sol", IsSubagent: true}, now)
+	if otherModel.WorkspaceID != "hers" {
+		t.Fatalf("non-Luna subagent selected %q", otherModel.WorkspaceID)
+	}
+}
+
+func TestSubagentHelperFallsBackWhenUnavailable(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	st := profileState(now, 80, 80)
+	st.Workspaces["free"].Paused = true
+	st.ActiveProfile = &RoutingProfile{
+		ID: "helpers", Name: "Hers first", Command: "hers", Mode: ProfilePriority,
+		PriorityWorkspaceIDs: []string{"hers", "mine", "free"}, HandoffBelowPercent: 2,
+		SubagentHelperEnabled: true, SubagentHelperWorkspaceID: "free", SubagentHelperModel: "gpt-5.6-luna",
+	}
+	d := Evaluate(st, Request{Model: "gpt-5.6-luna", IsSubagent: true}, now)
+	if d.WorkspaceID != "hers" || d.Outcome != OutcomeSelected {
+		t.Fatalf("helper fallback selected %q/%s: %s", d.WorkspaceID, d.Outcome, d.Summary)
+	}
+	foundFallback := false
+	for _, note := range d.Notes {
+		if note.Code == ReasonSubagentHelper && note.WorkspaceID == "free" {
+			foundFallback = true
+		}
+	}
+	if !foundFallback {
+		t.Fatal("fallback explanation was not recorded")
+	}
+}
+
 func TestProfileValidationRejectsAliasCollisionsAndUnknownWorkspaces(t *testing.T) {
 	known := map[string]bool{"mine": true, "hers": true}
 	p := RoutingProfile{

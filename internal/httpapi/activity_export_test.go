@@ -69,7 +69,7 @@ func TestActivityCSVExportsEveryRetainedRowAndQuotesFields(t *testing.T) {
 		t.Fatalf("CSV rows = %d, want header + all 501 retained rows", len(records))
 	}
 	header := records[0]
-	for _, want := range []string{"time", "thread_id", "workspace_name", "account_email", "plan", "quota_snapshot_json", "output_tokens_per_second"} {
+	for _, want := range []string{"time", "thread_id", "request_kind", "workspace_name", "account_email", "plan", "quota_snapshot_json", "output_tokens_per_second"} {
 		if !containsCSVField(header, want) {
 			t.Errorf("CSV header is missing %q: %v", want, header)
 		}

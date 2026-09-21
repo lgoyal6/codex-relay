@@ -83,6 +83,7 @@ func Detect() Detection {
 }
 
 var reModelProvider = regexp.MustCompile(`(?m)^\s*model_provider\s*=\s*"([^"]+)"`)
+var reDefaultSubagentModel = regexp.MustCompile(`(?m)^\s*default_subagent_model\s*=\s*"([^"]+)"`)
 
 func providerTable() string { return "model_providers." + ProviderID }
 
@@ -137,6 +138,9 @@ func renderKeyBlock() string {
 # codex-relay routes Codex turns through a local service so quota rules can apply.
 # Remove these blocks, or run `+"`codexrelay rollback`"+`, to restore the previous setting.
 model_provider = "%s"
+# Codex controls the helper model; codex-relay controls only which eligible workspace serves
+# requests that Codex explicitly marks as delegated subagent work.
+default_subagent_model = "gpt-5.6-luna"
 %s`, beginMarker, ProviderID, endMarker)
 }
 
@@ -171,6 +175,7 @@ func disableExistingProvider(existing string) string {
 		limit = loc[0]
 	}
 	head := reModelProvider.ReplaceAllString(existing[:limit], "# codex-relay disabled this line: $0")
+	head = reDefaultSubagentModel.ReplaceAllString(head, "# codex-relay disabled this line: $0")
 	return head + existing[limit:]
 }
 
@@ -232,7 +237,7 @@ func unifiedDiff(before, after string) string {
 	// This is a preview for a person, not a patch to be applied by a machine. Both managed
 	// regions are shown: a preview that hid one of them would understate the change.
 	for _, line := range b {
-		if reModelProvider.MatchString(line) {
+		if reModelProvider.MatchString(line) || reDefaultSubagentModel.MatchString(line) {
 			sb.WriteString("- " + line + "\n")
 		}
 	}

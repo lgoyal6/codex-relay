@@ -31,13 +31,15 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 	started := p.opt.Clock.Now()
 	threadID := conversationID(r)
 	model, rawBody := modelFromBody(r)
+	requestKind := turnKind(r)
+	isSubagent := requestKind == "subagent"
 
 	// Authenticate before anything else. Until this existed the proxy was open to every
 	// process on the machine, and an unauthenticated caller could spend real quota.
 	keyID, authErr := p.opt.Selector.Authenticate(r.Context(), r)
 	if authErr != nil {
 		p.opt.Selector.RecordDecision(Record{
-			At: started, ThreadID: threadID, Model: model, Attempt: 1,
+			At: started, ThreadID: threadID, Model: model, RequestKind: requestKind, Attempt: 1,
 			Decision: policy.Decision{
 				Outcome: policy.OutcomeBlocked, Primary: "unauthorized",
 				Summary: "This request carried no usable API key, and the relay is locked.",
@@ -56,6 +58,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 
 	d := p.opt.Selector.Decide(r.Context(), policy.Request{
 		Model:            model,
+		IsSubagent:       isSubagent,
 		OwnerWorkspaceID: owner,
 		ThreadID:         threadID,
 	})
@@ -63,7 +66,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 	if d.Outcome != policy.OutcomeSelected {
 		// Nothing is spent and the client is told why, in its own error channel.
 		p.opt.Selector.RecordDecision(Record{
-			At: started, ThreadID: threadID, Model: model, Decision: d, APIKeyID: keyID,
+			At: started, ThreadID: threadID, Model: model, RequestKind: requestKind, Decision: d, APIKeyID: keyID,
 			Attempt: 1, StatusCode: http.StatusServiceUnavailable, ErrorClass: "blocked_by_policy",
 			FailurePhase: "admission", Transport: "http", ErrorMessage: d.Summary,
 			TotalMS: p.opt.Clock.Now().Sub(started).Milliseconds(),
@@ -82,7 +85,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := bind(r.Context(), threadID, d.WorkspaceID); err != nil {
 			p.opt.Selector.RecordDecision(Record{
-				At: started, ThreadID: threadID, Model: model, Decision: d, APIKeyID: keyID,
+				At: started, ThreadID: threadID, Model: model, RequestKind: requestKind, Decision: d, APIKeyID: keyID,
 				Attempt: 1, StatusCode: http.StatusConflict, ErrorClass: "ownership_conflict",
 				FailurePhase: "admission", Transport: "http", ErrorMessage: err.Error(),
 				TotalMS: p.opt.Clock.Now().Sub(started).Milliseconds(),
@@ -96,7 +99,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 	id, err := p.opt.Selector.Identity(r.Context(), d.WorkspaceID)
 	if err != nil {
 		p.opt.Selector.RecordDecision(Record{
-			At: started, ThreadID: threadID, Model: model, Decision: d, APIKeyID: keyID,
+			At: started, ThreadID: threadID, Model: model, RequestKind: requestKind, Decision: d, APIKeyID: keyID,
 			Attempt: 1, StatusCode: http.StatusBadGateway, ErrorClass: "credential_unavailable",
 			FailurePhase: "admission", Transport: "http", ErrorMessage: err.Error(),
 			TotalMS: p.opt.Clock.Now().Sub(started).Milliseconds(),
@@ -124,7 +127,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 			cls = "client_cancelled"
 		}
 		p.opt.Selector.RecordDecision(Record{
-			At: started, ThreadID: threadID, Model: model, Decision: d, APIKeyID: keyID,
+			At: started, ThreadID: threadID, Model: model, RequestKind: requestKind, Decision: d, APIKeyID: keyID,
 			Attempt: 1, ErrorClass: cls, FailurePhase: "upstream_connect", Transport: "http",
 			ErrorMessage: err.Error(),
 			TotalMS:      p.opt.Clock.Now().Sub(started).Milliseconds(),
@@ -145,6 +148,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 	if resp.StatusCode == http.StatusTooManyRequests && rawBody != nil && threadID != "" {
 		retryDecision := p.opt.Selector.Decide(r.Context(), policy.Request{
 			Model:            model,
+			IsSubagent:       isSubagent,
 			OwnerWorkspaceID: owner,
 			ThreadID:         threadID,
 			Exclude:          []string{d.WorkspaceID},
@@ -211,7 +215,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p.opt.Selector.RecordDecision(Record{
-		At: started, ThreadID: threadID, Model: model, Decision: d, APIKeyID: keyID,
+		At: started, ThreadID: threadID, Model: model, RequestKind: requestKind, Decision: d, APIKeyID: keyID,
 		Attempt: attempt, StatusCode: resp.StatusCode,
 		FirstTokenMS: firstToken, TotalMS: total, Usage: usage,
 		ErrorClass:     class,
@@ -319,6 +323,29 @@ func conversationID(r *http.Request) string {
 	return strings.TrimSpace(r.Header.Get("session-id"))
 }
 
+// turnKind trusts only markers Codex emits for delegated work. A Luna model name alone is
+// deliberately insufficient because users can run an ordinary parent task on Luna too.
+func turnKind(r *http.Request) string {
+	if marker := strings.TrimSpace(r.Header.Get("x-openai-subagent")); marker != "" && marker != "0" && !strings.EqualFold(marker, "false") {
+		return "subagent"
+	}
+	if strings.TrimSpace(r.Header.Get("x-codex-parent-thread-id")) != "" {
+		return "subagent"
+	}
+	if raw := r.Header.Get("x-codex-turn-metadata"); raw != "" {
+		var meta struct {
+			ParentThreadID string `json:"parent_thread_id"`
+			SubagentKind   string `json:"subagent_kind"`
+			ThreadSource   string `json:"thread_source"`
+		}
+		if err := json.Unmarshal([]byte(raw), &meta); err == nil &&
+			(meta.ParentThreadID != "" || meta.SubagentKind != "" || strings.HasPrefix(meta.ThreadSource, "subagent")) {
+			return "subagent"
+		}
+	}
+	return "parent"
+}
+
 // modelFromBody reads the requested model so eligibility can be checked, and returns the
 // buffered bytes. The body is restored afterwards so forwarding is unaffected.
 //
@@ -402,7 +429,7 @@ func (p *Proxy) retryElsewhere(
 	// Record the refusal only after the retry really produced a response and ownership moved.
 	// If setup or transport fails, the caller serves and records the original refusal once.
 	p.opt.Selector.RecordDecision(Record{
-		At: started, ThreadID: threadID, Model: model, Decision: refused, APIKeyID: keyID,
+		At: started, ThreadID: threadID, Model: model, RequestKind: turnKind(r), Decision: refused, APIKeyID: keyID,
 		Attempt: 1, StatusCode: first.StatusCode, ErrorClass: "quota",
 		FailurePhase: "upstream_status", Transport: "http", UpstreamStatus: first.StatusCode,
 		ErrorMessage: "upstream refused this turn on quota; retried on another workspace",

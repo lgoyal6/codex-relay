@@ -29,6 +29,7 @@ const (
 	ReasonProfileDisabled    ReasonCode = "disabled_by_profile"
 	ReasonWeeklyPace         ReasonCode = "weekly_pace"
 	ReasonPaceOverflow       ReasonCode = "pace_overflow"
+	ReasonSubagentHelper     ReasonCode = "subagent_helper"
 )
 
 // Outcome is what the evaluator decided.
@@ -82,6 +83,9 @@ type Decision struct {
 // Request describes what is being admitted.
 type Request struct {
 	Model string
+	// IsSubagent is true only when Codex marks this as delegated work. It is never inferred
+	// from the model name, so an ordinary Luna parent task keeps the normal profile routing.
+	IsSubagent bool
 	// OwnerWorkspaceID is set when this conversation is already bound to a workspace.
 	// Ownership is retained unless an explicit preference selects another eligible workspace
 	// or the owner reaches an automatic handoff condition.
@@ -264,6 +268,30 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 		d.Notes = append(d.Notes, Note{
 			Code: profileCode, WorkspaceID: profileOrder[0], Message: profileReason,
 		})
+	}
+
+	// A helper preference is narrower than the profile's main ordering: it applies only to
+	// an actual Codex subagent using the configured helper model. If the helper is paused,
+	// out of quota, unsupported, protected, or otherwise unavailable, the ordinary profile
+	// order remains intact and becomes the fallback.
+	if p := st.ActiveProfile; p != nil && p.SubagentHelperEnabled && req.IsSubagent &&
+		(req.Model == "" || req.Model == p.SubagentHelperModel) {
+		helperID := p.SubagentHelperWorkspaceID
+		if eligible[helperID] {
+			preferOrder = append([]string{helperID}, withoutWorkspace(preferOrder, helperID)...)
+			explicitPreferOrder = append([]string{helperID}, withoutWorkspace(explicitPreferOrder, helperID)...)
+			profileCode = ReasonSubagentHelper
+			profileReason = fmt.Sprintf("This is a delegated %s subagent, so the active %s profile prefers %s as its helper.",
+				p.SubagentHelperModel, p.Name, nameOf(st, helperID))
+			d.Notes = append(d.Notes, Note{Code: ReasonSubagentHelper, WorkspaceID: helperID, Message: profileReason})
+			if len(profileOrder) == 0 || profileOrder[0] != helperID {
+				profileOrder = append([]string{helperID}, withoutWorkspace(profileOrder, helperID)...)
+			}
+		} else {
+			d.Notes = append(d.Notes, Note{Code: ReasonSubagentHelper, WorkspaceID: helperID,
+				Message: fmt.Sprintf("The configured Luna helper %s is unavailable: %s The normal profile order is the fallback.",
+					nameOf(st, helperID), details[helperID])})
+		}
 	}
 
 	// An explicit preference is also the user's account switch. It applies between turns to

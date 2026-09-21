@@ -228,4 +228,15 @@ var migrations = []string{
 		created_at                   TEXT NOT NULL,
 		updated_at                   TEXT NOT NULL
 	);`,
+
+	// A profile may send only Codex-delegated subagent turns to a helper workspace. The
+	// requested model remains a Codex concern; the relay merely verifies the request marker
+	// and applies the configured workspace preference when that model matches.
+	`ALTER TABLE routing_profiles ADD COLUMN subagent_helper_enabled INTEGER NOT NULL DEFAULT 0;`,
+	`ALTER TABLE routing_profiles ADD COLUMN subagent_helper_workspace_id TEXT NOT NULL DEFAULT '';`,
+	`ALTER TABLE routing_profiles ADD COLUMN subagent_helper_model TEXT NOT NULL DEFAULT 'gpt-5.6-luna';`,
+
+	// Activity needs to distinguish a parent turn from delegated work without retaining any
+	// prompt or task text. Existing rows are parent turns unless proven otherwise.
+	`ALTER TABLE decisions ADD COLUMN request_kind TEXT NOT NULL DEFAULT 'parent';`,
 }

@@ -20,6 +20,7 @@ func (s *Service) RoutingProfiles(ctx context.Context) ([]policy.RoutingProfile,
 		SELECT id, name, command, aliases_json, mode, priority_workspace_ids_json,
 		       pace_workspace_ids_json, overflow_workspace_id, target_remaining_percent,
 		       default_workspace_id, handoff_below_percent, disabled_workspace_ids_json,
+		       subagent_helper_enabled, subagent_helper_workspace_id, subagent_helper_model,
 		       created_at, updated_at
 		FROM routing_profiles ORDER BY name COLLATE NOCASE, id`)
 	if err != nil {
@@ -44,13 +45,16 @@ type profileScanner interface {
 func scanProfile(row profileScanner) (policy.RoutingProfile, error) {
 	var p policy.RoutingProfile
 	var aliases, priority, paced, disabled, mode, created, updated string
+	var helperEnabled bool
 	err := row.Scan(&p.ID, &p.Name, &p.Command, &aliases, &mode, &priority, &paced,
 		&p.OverflowWorkspaceID, &p.TargetRemainingPercent, &p.DefaultWorkspaceID,
-		&p.HandoffBelowPercent, &disabled, &created, &updated)
+		&p.HandoffBelowPercent, &disabled, &helperEnabled, &p.SubagentHelperWorkspaceID,
+		&p.SubagentHelperModel, &created, &updated)
 	if err != nil {
 		return p, err
 	}
 	p.Mode = policy.ProfileMode(mode)
+	p.SubagentHelperEnabled = helperEnabled
 	for _, pair := range []struct {
 		raw    string
 		target *[]string
@@ -108,8 +112,9 @@ func (s *Service) SaveRoutingProfile(ctx context.Context, profile policy.Routing
 			(id, name, command, aliases_json, mode, priority_workspace_ids_json,
 			 pace_workspace_ids_json, overflow_workspace_id, target_remaining_percent,
 			 default_workspace_id, handoff_below_percent, disabled_workspace_ids_json,
+			 subagent_helper_enabled, subagent_helper_workspace_id, subagent_helper_model,
 			 created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 			name=excluded.name, command=excluded.command, aliases_json=excluded.aliases_json,
 			mode=excluded.mode, priority_workspace_ids_json=excluded.priority_workspace_ids_json,
@@ -119,10 +124,15 @@ func (s *Service) SaveRoutingProfile(ctx context.Context, profile policy.Routing
 			default_workspace_id=excluded.default_workspace_id,
 			handoff_below_percent=excluded.handoff_below_percent,
 			disabled_workspace_ids_json=excluded.disabled_workspace_ids_json,
+			subagent_helper_enabled=excluded.subagent_helper_enabled,
+			subagent_helper_workspace_id=excluded.subagent_helper_workspace_id,
+			subagent_helper_model=excluded.subagent_helper_model,
 			updated_at=excluded.updated_at`,
 		profile.ID, profile.Name, profile.Command, string(aliases), string(profile.Mode), string(priority),
 		string(paced), profile.OverflowWorkspaceID, profile.TargetRemainingPercent,
-		profile.DefaultWorkspaceID, profile.HandoffBelowPercent, string(disabled), created, now)
+		profile.DefaultWorkspaceID, profile.HandoffBelowPercent, string(disabled),
+		profile.SubagentHelperEnabled, profile.SubagentHelperWorkspaceID, profile.SubagentHelperModel,
+		created, now)
 	if err != nil {
 		return profile, err
 	}
@@ -180,6 +190,7 @@ func (s *Service) ActiveRoutingProfile(ctx context.Context) (*policy.RoutingProf
 		SELECT id, name, command, aliases_json, mode, priority_workspace_ids_json,
 		       pace_workspace_ids_json, overflow_workspace_id, target_remaining_percent,
 		       default_workspace_id, handoff_below_percent, disabled_workspace_ids_json,
+		       subagent_helper_enabled, subagent_helper_workspace_id, subagent_helper_model,
 		       created_at, updated_at
 		FROM routing_profiles WHERE id = ?`, id)
 	profile, err := scanProfile(row)
