@@ -80,10 +80,10 @@ preferred. An eligible profile preference can move an existing conversation betw
 but it never replays a turn after output starts.
 
 Profiles can also enable **Luna helpers**. `codexrelay setup` sets Codex's native
-`default_subagent_model` to `gpt-5.6-luna`; the relay then prefers the profile's helper
-workspace only when Codex explicitly marks a request as delegated work. Choosing Luna for an
-ordinary parent task does not trigger helper routing. Activity and CSV exports label every
-row as `parent` or `subagent`.
+`agents.default_subagent_model` to `gpt-5.6-luna`; the relay then prefers the profile's
+helper workspace only when Codex explicitly marks a request as delegated work. Choosing Luna
+for an ordinary parent task does not trigger helper routing. Activity and CSV exports label
+every row as `parent` or `subagent`.
 
 ## How it connects to Codex
 

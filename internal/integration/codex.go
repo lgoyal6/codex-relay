@@ -83,7 +83,8 @@ func Detect() Detection {
 }
 
 var reModelProvider = regexp.MustCompile(`(?m)^\s*model_provider\s*=\s*"([^"]+)"`)
-var reDefaultSubagentModel = regexp.MustCompile(`(?m)^\s*default_subagent_model\s*=\s*"([^"]+)"`)
+var reDottedDefaultSubagentModel = regexp.MustCompile(`(?m)^\s*agents\.default_subagent_model\s*=\s*"([^"]+)"[^\n]*`)
+var reBareDefaultSubagentModel = regexp.MustCompile(`(?m)^\s*default_subagent_model\s*=\s*"([^"]+)"[^\n]*`)
 
 func providerTable() string { return "model_providers." + ProviderID }
 
@@ -119,28 +120,27 @@ func BuildPlan(configPath, proxyAddr string, supportsWebSockets bool) (Plan, err
 	return p, nil
 }
 
-// Our edit is written as TWO managed regions, and the reason is a TOML rule with teeth: a
+// Our edit is written as three managed regions, and the reason is a TOML rule with teeth: a
 // bare key belongs to whatever table precedes it. Appending `model_provider = "codexrelay"`
 // to the end of a file that already contains any table (an MCP server, a profile, another
 // provider) silently makes it a key of THAT table. Codex would then never switch provider,
 // setup would report success, and the user's table would carry a stray key. That failure was
 // reproduced against codex-cli 0.154.0 before this split existed.
 //
-// So: the bare key goes above the first table header, and our own table goes at the end,
-// where the only keys it can absorb are ours.
+// So: the bare provider key goes above the first table header, our provider table goes at
+// the end, and the helper model goes inside the user's existing [agents] table or a new one.
 const beginMarker = "# >>> codex-relay managed block (do not edit inside) >>>"
 const endMarker = "# <<< codex-relay managed block <<<"
 const beginTableMarker = "# >>> codex-relay managed provider (do not edit inside) >>>"
 const endTableMarker = "# <<< codex-relay managed provider <<<"
+const beginAgentsMarker = "# >>> codex-relay managed agents setting (do not edit inside) >>>"
+const endAgentsMarker = "# <<< codex-relay managed agents setting <<<"
 
 func renderKeyBlock() string {
 	return fmt.Sprintf(`%s
 # codex-relay routes Codex turns through a local service so quota rules can apply.
 # Remove these blocks, or run `+"`codexrelay rollback`"+`, to restore the previous setting.
 model_provider = "%s"
-# Codex controls the helper model; codex-relay controls only which eligible workspace serves
-# requests that Codex explicitly marks as delegated subagent work.
-default_subagent_model = "gpt-5.6-luna"
 %s`, beginMarker, ProviderID, endMarker)
 }
 
@@ -155,14 +155,31 @@ requires_openai_auth = true
 %s`, beginTableMarker, providerTable(), proxyAddr, ws, endTableMarker)
 }
 
+func renderAgentsBlock(includeHeader bool) string {
+	header := ""
+	if includeHeader {
+		header = "[agents]\n"
+	}
+	return fmt.Sprintf(`%s
+%sdefault_subagent_model = "gpt-5.6-luna"
+# Codex controls the helper model; codex-relay controls only which eligible workspace serves
+# requests that Codex explicitly marks as delegated subagent work.
+%s`, beginAgentsMarker, header, endAgentsMarker)
+}
+
 // reTableHeader matches a TOML table or array-of-tables header at the start of a line.
 var reTableHeader = regexp.MustCompile(`(?m)^\s*\[`)
+var reAgentsTableHeader = regexp.MustCompile(`(?m)^[ \t]*\[agents\][ \t]*(?:#[^\n]*)?$`)
 
-// applyBlock inserts or replaces only our two managed regions, leaving everything else alone.
+// applyBlock inserts or replaces only our three managed regions, leaving everything else alone.
 func applyBlock(existing, keyBlock, tableBlock string) string {
+	// Replacing our regions in place preserves the user's surrounding whitespace. It also
+	// upgrades the old key block by dropping the unsupported top-level helper-model key.
 	out := disableExistingProvider(existing)
+	out = disableExistingSubagentModel(out)
 	out = replaceOrInsertKeyBlock(out, keyBlock)
-	return replaceOrAppendTableBlock(out, tableBlock)
+	out = replaceOrAppendTableBlock(out, tableBlock)
+	return insertAgentsBlock(out)
 }
 
 // disableExistingProvider comments out a pre-existing TOP-LEVEL model_provider line rather
@@ -175,8 +192,64 @@ func disableExistingProvider(existing string) string {
 		limit = loc[0]
 	}
 	head := reModelProvider.ReplaceAllString(existing[:limit], "# codex-relay disabled this line: $0")
-	head = reDefaultSubagentModel.ReplaceAllString(head, "# codex-relay disabled this line: $0")
 	return head + existing[limit:]
+}
+
+// disableExistingSubagentModel preserves either supported spelling before Relay writes its
+// own value: a top-level dotted key or a bare key inside [agents].
+func disableExistingSubagentModel(existing string) string {
+	limit := len(existing)
+	if loc := reTableHeader.FindStringIndex(existing); loc != nil {
+		limit = loc[0]
+	}
+	head := reDottedDefaultSubagentModel.ReplaceAllString(existing[:limit], "# codex-relay disabled this line: $0")
+	out := head + existing[limit:]
+
+	_, tableStart, tableEnd, ok := agentsTableBounds(out)
+	if !ok {
+		return out
+	}
+	table := reBareDefaultSubagentModel.ReplaceAllString(out[tableStart:tableEnd], "# codex-relay disabled this line: $0")
+	return out[:tableStart] + table + out[tableEnd:]
+}
+
+// agentsTableBounds returns the end of the [agents] header and the body bounds up to the
+// next table. A bare helper-model key is valid only within this body.
+func agentsTableBounds(s string) (headerEnd, tableStart, tableEnd int, ok bool) {
+	header := reAgentsTableHeader.FindStringIndex(s)
+	if header == nil {
+		return 0, 0, 0, false
+	}
+	headerEnd = header[1]
+	if headerEnd < len(s) && s[headerEnd] == '\n' {
+		headerEnd++
+	}
+	tableStart = headerEnd
+	tableEnd = len(s)
+	if next := reTableHeader.FindStringIndex(s[tableStart:]); next != nil {
+		tableEnd = tableStart + next[0]
+	}
+	return headerEnd, tableStart, tableEnd, true
+}
+
+func insertAgentsBlock(existing string) string {
+	if i := strings.Index(existing, beginAgentsMarker); i >= 0 {
+		if j := strings.Index(existing[i:], endAgentsMarker); j >= 0 {
+			end := i + j + len(endAgentsMarker)
+			includeHeader := strings.Contains(existing[i:end], "[agents]")
+			return existing[:i] + renderAgentsBlock(includeHeader) + existing[end:]
+		}
+	}
+	if headerEnd, _, _, ok := agentsTableBounds(existing); ok {
+		return existing[:headerEnd] + renderAgentsBlock(false) + "\n" + existing[headerEnd:]
+	}
+	if existing != "" && !strings.HasSuffix(existing, "\n") {
+		existing += "\n"
+	}
+	if existing != "" {
+		existing += "\n"
+	}
+	return existing + renderAgentsBlock(true) + "\n"
 }
 
 func replaceOrInsertKeyBlock(existing, block string) string {
@@ -234,16 +307,16 @@ func unifiedDiff(before, after string) string {
 	a := strings.Split(after, "\n")
 	var sb strings.Builder
 	// A minimal, readable change summary: every line we add and any line we comment out.
-	// This is a preview for a person, not a patch to be applied by a machine. Both managed
+	// This is a preview for a person, not a patch to be applied by a machine. All managed
 	// regions are shown: a preview that hid one of them would understate the change.
 	for _, line := range b {
-		if reModelProvider.MatchString(line) || reDefaultSubagentModel.MatchString(line) {
+		if reModelProvider.MatchString(line) || reDottedDefaultSubagentModel.MatchString(line) || reBareDefaultSubagentModel.MatchString(line) {
 			sb.WriteString("- " + line + "\n")
 		}
 	}
 	inBlock := false
 	for _, line := range a {
-		if strings.Contains(line, beginMarker) || strings.Contains(line, beginTableMarker) {
+		if strings.Contains(line, beginMarker) || strings.Contains(line, beginTableMarker) || strings.Contains(line, beginAgentsMarker) {
 			if sb.Len() > 0 && inBlock {
 				sb.WriteString("\n")
 			}
@@ -252,7 +325,7 @@ func unifiedDiff(before, after string) string {
 		if inBlock {
 			sb.WriteString("+ " + line + "\n")
 		}
-		if strings.Contains(line, endMarker) || strings.Contains(line, endTableMarker) {
+		if strings.Contains(line, endMarker) || strings.Contains(line, endTableMarker) || strings.Contains(line, endAgentsMarker) {
 			inBlock = false
 		}
 	}

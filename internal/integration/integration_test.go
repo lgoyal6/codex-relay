@@ -46,7 +46,7 @@ func TestPlanUsesAModelProviderNotChatgptBaseUrl(t *testing.T) {
 	if !strings.Contains(p.After, `model_provider = "codexrelay"`) {
 		t.Fatal("the plan must select our model provider")
 	}
-	if !strings.Contains(p.After, `default_subagent_model = "gpt-5.6-luna"`) {
+	if !strings.Contains(p.After, "[agents]\ndefault_subagent_model = \"gpt-5.6-luna\"") {
 		t.Fatal("the plan must make delegated helpers use Luna")
 	}
 	if !strings.Contains(p.After, `base_url = "http://127.0.0.1:7788/backend-api/codex"`) {
@@ -62,10 +62,10 @@ func TestPlanUsesAModelProviderNotChatgptBaseUrl(t *testing.T) {
 	}
 }
 
-func TestPlanReplacesAnExistingTopLevelSubagentModelWithoutDuplicateKeys(t *testing.T) {
+func TestPlanReplacesAnExistingDottedSubagentModelWithoutDuplicateKeys(t *testing.T) {
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "config.toml")
-	write(t, cfg, "default_subagent_model = \"gpt-old\"\n\n[mcp_servers.tool]\ncommand = \"tool\"\n")
+	write(t, cfg, "agents.default_subagent_model = \"gpt-old\"\n\n[mcp_servers.tool]\ncommand = \"tool\"\n")
 	p, err := BuildPlan(cfg, "127.0.0.1:7788", true)
 	if err != nil {
 		t.Fatal(err)
@@ -73,11 +73,118 @@ func TestPlanReplacesAnExistingTopLevelSubagentModelWithoutDuplicateKeys(t *test
 	if strings.Count(p.After, `default_subagent_model = "gpt-5.6-luna"`) != 1 {
 		t.Fatalf("Luna default count is not one:\n%s", p.After)
 	}
-	if !strings.Contains(p.After, `# codex-relay disabled this line: default_subagent_model = "gpt-old"`) {
+	if !strings.Contains(p.After, `# codex-relay disabled this line: agents.default_subagent_model = "gpt-old"`) {
 		t.Fatalf("the previous setting was not preserved as a comment:\n%s", p.After)
 	}
-	if !strings.Contains(p.Diff, `- default_subagent_model = "gpt-old"`) {
+	if !strings.Contains(p.Diff, `- agents.default_subagent_model = "gpt-old"`) {
 		t.Fatalf("the setup preview did not show the replaced helper model:\n%s", p.Diff)
+	}
+
+	rec := &memRecorder{}
+	if _, err := Apply(p, rec, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := os.ReadFile(cfg)
+	write(t, cfg, string(current)+"\n[profiles.later]\nmodel = \"gpt-later\"\n")
+	if _, err := Rollback(rec, cfg, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(cfg)
+	if !strings.Contains(string(after), `agents.default_subagent_model = "gpt-old"`) {
+		t.Fatalf("surgical rollback must restore the dotted helper model:\n%s", after)
+	}
+	if !strings.Contains(string(after), "[profiles.later]") {
+		t.Fatalf("surgical rollback must preserve later edits:\n%s", after)
+	}
+}
+
+func TestPlanInsertsSubagentModelIntoExistingAgentsTable(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.toml")
+	write(t, cfg, "[agents]\nmax_threads = 4\n\n[mcp_servers.tool]\ncommand = \"tool\"\n")
+	p, err := BuildPlan(cfg, "127.0.0.1:7788", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(p.After, "[agents]") != 1 {
+		t.Fatalf("setup must not create a duplicate [agents] table:\n%s", p.After)
+	}
+	agentsStart := strings.Index(p.After, "[agents]")
+	mcpStart := strings.Index(p.After, "[mcp_servers.tool]")
+	modelStart := strings.Index(p.After, `default_subagent_model = "gpt-5.6-luna"`)
+	if agentsStart < 0 || modelStart < agentsStart || mcpStart < modelStart {
+		t.Fatalf("the helper model must belong to the existing [agents] table:\n%s", p.After)
+	}
+	if !strings.Contains(p.After, "max_threads = 4") {
+		t.Fatalf("existing agent settings must survive:\n%s", p.After)
+	}
+}
+
+func TestPlanDisablesAndRestoresExistingAgentsTableModel(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.toml")
+	original := "[agents]\ndefault_subagent_model = \"gpt-old\"\nmax_threads = 4\n"
+	write(t, cfg, original)
+	p, err := BuildPlan(cfg, "127.0.0.1:7788", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(p.After, `# codex-relay disabled this line: default_subagent_model = "gpt-old"`) {
+		t.Fatalf("the previous [agents] setting was not preserved:\n%s", p.After)
+	}
+	if !strings.Contains(p.Diff, `- default_subagent_model = "gpt-old"`) {
+		t.Fatalf("the preview did not show the replaced [agents] model:\n%s", p.Diff)
+	}
+
+	rec := &memRecorder{}
+	if _, err := Apply(p, rec, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := os.ReadFile(cfg)
+	write(t, cfg, string(current)+"\n[mcp_servers.later]\ncommand = \"later\"\n")
+	res, err := Rollback(rec, cfg, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.ConflictDetected {
+		t.Fatal("the later edit must force surgical rollback")
+	}
+	after, _ := os.ReadFile(cfg)
+	if !strings.Contains(string(after), original) {
+		t.Fatalf("surgical rollback must restore the previous [agents] model:\n%s", after)
+	}
+	if !strings.Contains(string(after), "[mcp_servers.later]") {
+		t.Fatalf("surgical rollback must preserve later edits:\n%s", after)
+	}
+}
+
+func TestPlanUpgradesOldIncorrectManagedSubagentKey(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.toml")
+	old := `# >>> codex-relay managed block (do not edit inside) >>>
+model_provider = "codexrelay"
+default_subagent_model = "gpt-5.6-luna"
+# <<< codex-relay managed block <<<
+
+# >>> codex-relay managed provider (do not edit inside) >>>
+[model_providers.codexrelay]
+name = "openai"
+base_url = "http://127.0.0.1:7788/backend-api/codex"
+wire_api = "responses"
+supports_websockets = true
+requires_openai_auth = true
+# <<< codex-relay managed provider <<<
+`
+	write(t, cfg, old)
+	p, err := BuildPlan(cfg, "127.0.0.1:7788", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(p.After, "\ndefault_subagent_model = \"gpt-5.6-luna\"\n# <<< codex-relay managed block") {
+		t.Fatalf("the obsolete top-level key must be removed from the main block:\n%s", p.After)
+	}
+	if !strings.Contains(p.After, "[agents]\ndefault_subagent_model = \"gpt-5.6-luna\"") {
+		t.Fatalf("the upgrade must write the supported setting under [agents]:\n%s", p.After)
 	}
 }
 
@@ -287,9 +394,9 @@ args = ["-y", "@modelcontextprotocol/server-filesystem"]
 	}
 }
 
-// TestRollbackRemovesBothRegions covers the two-region layout: a rollback that removed only
-// one of them would leave a half-configured file behind.
-func TestRollbackRemovesBothRegions(t *testing.T) {
+// TestRollbackRemovesAllRegions covers the three-region layout: a rollback that omitted one
+// would leave a partially configured file behind.
+func TestRollbackRemovesAllRegions(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 	before := "model = \"gpt-5.1-codex\"\n\n[mcp_servers.fs]\ncommand = \"npx\"\n"
@@ -317,7 +424,8 @@ func TestRollbackRemovesBothRegions(t *testing.T) {
 	after, _ := os.ReadFile(path)
 	got := string(after)
 	for _, leftover := range []string{beginMarker, endMarker, beginTableMarker, endTableMarker,
-		`model_provider = "codexrelay"`, "[model_providers.codexrelay]"} {
+		beginAgentsMarker, endAgentsMarker, `model_provider = "codexrelay"`,
+		"[model_providers.codexrelay]", `default_subagent_model = "gpt-5.6-luna"`} {
 		if strings.Contains(got, leftover) {
 			t.Fatalf("rollback left %q behind:\n%s", leftover, got)
 		}
