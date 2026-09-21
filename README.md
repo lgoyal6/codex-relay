@@ -18,6 +18,9 @@ credential store.
   `relaypool weekend`. Commands and aliases are profile data, not hardcoded account names.
 - Can pace selected workspaces toward a chosen amount of weekly quota remaining at reset,
   using an overflow workspace while they are on schedule.
+- Can keep the active profile's normal model and workspace for a parent task while sending
+  Codex-marked delegated Luna subagents to a chosen helper workspace. An unavailable helper
+  falls back to the profile instead of blocking the parent task.
 - Shows per-workspace quota with the reserve threshold marked on the same bar, and labels a
   reading that is stale or missing instead of guessing.
 - Keeps conversation ownership across restarts. Between turns, an explicit preference can
@@ -75,6 +78,12 @@ reported weekly windows on every turn. If a paced workspace is above its linear 
 one furthest above target is preferred; otherwise the configured overflow workspace is
 preferred. An eligible profile preference can move an existing conversation between turns,
 but it never replays a turn after output starts.
+
+Profiles can also enable **Luna helpers**. `codexrelay setup` sets Codex's native
+`default_subagent_model` to `gpt-5.6-luna`; the relay then prefers the profile's helper
+workspace only when Codex explicitly marks a request as delegated work. Choosing Luna for an
+ordinary parent task does not trigger helper routing. Activity and CSV exports label every
+row as `parent` or `subagent`.
 
 ## How it connects to Codex
 

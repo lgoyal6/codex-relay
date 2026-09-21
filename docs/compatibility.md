@@ -78,6 +78,7 @@ header, and its own provider table at the end of the file. Rollback removes both
 | `session-id` | client session | not an ownership key |
 | `x-codex-window-id` | context window | not an ownership key |
 | `x-codex-turn-metadata` | JSON with `thread_id`, `turn_id`, `root_turn_id`, ... | fallback source of `thread_id`; `turn_id` distinguishes attempts |
+| `x-openai-subagent`, `x-codex-parent-thread-id`, subagent fields in turn metadata | delegated task markers | select the active profile's helper preference and label Activity; never inferred from model alone |
 | `originator`, `user-agent` | client surface and version | forwarded unchanged |
 
 These identifier scopes are **not** interchangeable. Ownership is keyed on `thread-id` only.
