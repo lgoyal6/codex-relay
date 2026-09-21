@@ -63,8 +63,9 @@ MCP server, a profile, another provider) makes `model_provider` a key of *that* 
 keeps its previous provider, nothing routes, and setup appears to succeed. Reproduced against
 0.154.0 (live).
 
-codex-relay therefore writes **two** managed regions: the bare key above the first table
-header, and its own provider table at the end of the file. Rollback removes both.
+codex-relay therefore writes **three** managed regions: the bare provider key above the first
+table header, its own provider table, and `default_subagent_model` inside `[agents]` as
+required by Codex's `agents.default_subagent_model` setting. Rollback removes all three.
 
 ## Generation request, as captured live
 

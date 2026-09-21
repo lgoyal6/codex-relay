@@ -134,10 +134,11 @@ func Rollback(rec Recorder, configPath string, now time.Time) (RollbackResult, e
 		Message: "Your Codex configuration was edited after codex-relay changed it, so only the codex-relay block was removed and your later edits were kept. A copy of the original is at " + c.BackupPath}, nil
 }
 
-// removeBlock deletes both managed regions and un-comments any line we disabled.
+// removeBlock deletes all managed regions and un-comments any line we disabled.
 func removeBlock(s string) string {
 	out := cutRegion(s, beginMarker, endMarker)
 	out = cutRegion(out, beginTableMarker, endTableMarker)
+	out = cutRegion(out, beginAgentsMarker, endAgentsMarker)
 	out = strings.ReplaceAll(out, "# codex-relay disabled this line: ", "")
 	return strings.TrimLeft(out, "\n")
 }

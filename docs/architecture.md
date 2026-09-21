@@ -47,7 +47,7 @@ parent-task metadata. The proxy converts those markers into `Request.IsSubagent`
 infers delegation from a Luna model name. A matching delegated Luna request may prefer the
 profile's helper workspace, but hard eligibility and reserve rules still win. If that helper
 is unavailable, the ordinary profile order remains the fallback. Setup uses Codex's native
-`default_subagent_model` setting to request Luna for delegated work.
+`agents.default_subagent_model` setting to request Luna for delegated work.
 
 **Ownership is required state, history is not.** Thread ownership is written
 transactionally, before any account-bound state is exposed, and a claim never steals an

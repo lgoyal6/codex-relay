@@ -12,8 +12,10 @@
    in its own database so rollback is precise later.
 
    If Codex is already using another provider, that line is **commented out**, not deleted,
-   and rollback restores it. Setup also sets Codex's native `default_subagent_model` to
-   `gpt-5.6-luna`; an existing top-level value is commented out and restored on rollback.
+   and rollback restores it. Setup also sets Codex's native
+   `agents.default_subagent_model` to `gpt-5.6-luna`. It writes the bare setting inside an
+   existing `[agents]` table or creates that table. An existing `[agents]` value or top-level
+   dotted value is commented out and restored on rollback.
 
 2. `codexrelay serve`
 
@@ -110,7 +112,7 @@ Two cases, and codex-relay tells you which one happened:
 - **The file is exactly as we left it.** Your original is restored byte for byte from the
   backup.
 - **The file changed after we wrote it.** Someone else edited it. Restoring the backup would
-  destroy that edit, so instead only codex-relay's two managed regions are removed and any
+  destroy that edit, so instead only codex-relay's three managed regions are removed and any
   line codex-relay commented out is restored. Your later edits are kept, and the message says
   a conflict was detected.
 
