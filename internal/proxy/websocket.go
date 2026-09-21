@@ -27,12 +27,15 @@ func (p *Proxy) serveWebSocket(w http.ResponseWriter, r *http.Request, route Rou
 	}
 	started := p.opt.Clock.Now()
 	threadID := conversationID(r)
+	model := modelHint(r)
+	requestKind := turnKind(r)
+	isSubagent := requestKind == "subagent"
 
 	// Same gate as the HTTP path, before any credential is resolved or quota is spent.
 	keyID, authErr := p.opt.Selector.Authenticate(r.Context(), r)
 	if authErr != nil {
 		p.opt.Selector.RecordDecision(Record{
-			At: started, ThreadID: threadID, Attempt: 1,
+			At: started, ThreadID: threadID, Model: model, RequestKind: requestKind, Attempt: 1,
 			Decision: policy.Decision{
 				Outcome: policy.OutcomeBlocked, Primary: "unauthorized",
 				Summary: "This request carried no usable API key, and the relay is locked.",
@@ -45,7 +48,9 @@ func (p *Proxy) serveWebSocket(w http.ResponseWriter, r *http.Request, route Rou
 	}
 
 	owner, _, _ := p.opt.Selector.OwnerOf(r.Context(), threadID)
-	d := p.opt.Selector.Decide(r.Context(), policy.Request{OwnerWorkspaceID: owner, ThreadID: threadID})
+	d := p.opt.Selector.Decide(r.Context(), policy.Request{
+		Model: model, IsSubagent: isSubagent, OwnerWorkspaceID: owner, ThreadID: threadID,
+	})
 	// Every exit from this path is recorded, exactly as on the HTTP path. A failure that
 	// leaves no Activity row is a failure the user cannot explain later.
 	// firstMS is -1 until a frame actually arrives, matching the HTTP path's convention that
@@ -62,7 +67,8 @@ func (p *Proxy) serveWebSocket(w http.ResponseWriter, r *http.Request, route Rou
 	var streamErrMsg atomic.Pointer[string]
 	record := func(status int, class string) {
 		p.opt.Selector.RecordDecision(Record{
-			At: started, ThreadID: threadID, Decision: d, Attempt: 1, APIKeyID: keyID,
+			At: started, ThreadID: threadID, Model: model, RequestKind: requestKind,
+			Decision: d, Attempt: 1, APIKeyID: keyID,
 			StatusCode: status, ErrorClass: class,
 			Usage:        usage.Load(),
 			FirstTokenMS: firstMS,

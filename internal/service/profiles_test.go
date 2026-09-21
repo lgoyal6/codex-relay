@@ -23,12 +23,16 @@ func TestRoutingProfilesPersistAndActivateByAlias(t *testing.T) {
 	saved, err := svc.SaveRoutingProfile(ctx, policy.RoutingProfile{
 		Name: "Free first", Command: "free", Aliases: []string{"his"}, Mode: policy.ProfilePriority,
 		PriorityWorkspaceIDs: []string{"free"}, DefaultWorkspaceID: "free", HandoffBelowPercent: 4,
+		SubagentHelperEnabled: true, SubagentHelperWorkspaceID: "free", SubagentHelperModel: "gpt-5.6-luna",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if saved.ID == "" || saved.Command != "free" || len(saved.Aliases) != 1 {
 		t.Fatalf("saved profile = %+v", saved)
+	}
+	if !saved.SubagentHelperEnabled || saved.SubagentHelperWorkspaceID != "free" || saved.SubagentHelperModel != "gpt-5.6-luna" {
+		t.Fatalf("helper settings were not persisted: %+v", saved)
 	}
 	activated, err := svc.ActivateRoutingProfile(ctx, "his")
 	if err != nil {

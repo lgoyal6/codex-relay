@@ -347,6 +347,46 @@ func TestThreadIdFallsBackToTurnMetadata(t *testing.T) {
 	}
 }
 
+func TestTurnKindUsesCodexSubagentMarkersNotTheModelName(t *testing.T) {
+	parent := httptest.NewRequest(http.MethodPost, "/backend-api/codex/responses", nil)
+	if got := turnKind(parent); got != "parent" {
+		t.Fatalf("unmarked request kind = %q", got)
+	}
+
+	header := httptest.NewRequest(http.MethodPost, "/backend-api/codex/responses", nil)
+	header.Header.Set("x-openai-subagent", "thread_spawn")
+	if got := turnKind(header); got != "subagent" {
+		t.Fatalf("subagent header kind = %q", got)
+	}
+
+	metadata := httptest.NewRequest(http.MethodPost, "/backend-api/codex/responses", nil)
+	metadata.Header.Set("x-codex-turn-metadata", `{"parent_thread_id":"parent","subagent_kind":"other"}`)
+	if got := turnKind(metadata); got != "subagent" {
+		t.Fatalf("subagent metadata kind = %q", got)
+	}
+}
+
+func TestGenerationPassesSubagentMarkerAndModelToPolicyAndActivity(t *testing.T) {
+	var got policy.Request
+	sel := &fakeSelector{decideFn: func(req policy.Request) policy.Decision {
+		got = req
+		return policy.Decision{Outcome: policy.OutcomeBlocked, Primary: policy.ReasonNoEligible, Summary: "test stop"}
+	}}
+	p := newProxy(t, sel, "http://127.0.0.1:1")
+	req := httptest.NewRequest(http.MethodPost, "/backend-api/codex/responses", strings.NewReader(`{"model":"gpt-5.6-luna"}`))
+	req.Header.Set("thread-id", "helper-thread")
+	req.Header.Set("x-openai-subagent", "thread_spawn")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	if !got.IsSubagent || got.Model != "gpt-5.6-luna" || got.ThreadID != "helper-thread" {
+		t.Fatalf("policy request = %+v", got)
+	}
+	if len(sel.records) != 1 || sel.records[0].RequestKind != "subagent" {
+		t.Fatalf("activity record = %+v", sel.records)
+	}
+}
+
 // TestCancelledTurnIsRecordedAsCancelled closes the reporting gap that made a cancelled turn
 // indistinguishable from a completed one: both end on a 200, so only the way the stream
 // ended tells them apart. Activity has to be able to explain what happened.

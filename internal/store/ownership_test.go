@@ -228,13 +228,13 @@ func TestSchemaHasEveryExpectedColumn(t *testing.T) {
 			"detail_json", "state_version", "attempt", "status_code", "first_token_ms",
 			"total_ms", "error_class",
 			"input_tokens", "cached_input_tokens", "output_tokens", "total_tokens",
-			"quota_snapshot_json",
+			"quota_snapshot_json", "request_kind",
 		},
 		"workspaces":          {"id", "account_id", "chatgpt_account_id", "display_name", "credential_ref", "credential_ok", "paused"},
 		"quota_windows":       {"workspace_id", "limit_id", "window_minutes", "used_percent", "resets_at", "observed_at"},
 		"thread_ownership":    {"thread_id", "workspace_id", "first_seen_at", "last_seen_at", "released_at"},
 		"integration_changes": {"target_path", "backup_path", "before_sha256", "after_sha256", "rolled_back_at"},
-		"routing_profiles":    {"id", "name", "command", "aliases_json", "mode", "priority_workspace_ids_json", "pace_workspace_ids_json", "overflow_workspace_id", "target_remaining_percent", "default_workspace_id", "handoff_below_percent", "disabled_workspace_ids_json"},
+		"routing_profiles":    {"id", "name", "command", "aliases_json", "mode", "priority_workspace_ids_json", "pace_workspace_ids_json", "overflow_workspace_id", "target_remaining_percent", "default_workspace_id", "handoff_below_percent", "disabled_workspace_ids_json", "subagent_helper_enabled", "subagent_helper_workspace_id", "subagent_helper_model"},
 	}
 
 	for table, cols := range want {

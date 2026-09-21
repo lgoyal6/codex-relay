@@ -47,7 +47,7 @@ func (a *API) handleActivityCSV(w http.ResponseWriter, r *http.Request) {
 
 	cw := csv.NewWriter(w)
 	header := []string{
-		"time", "thread_id", "workspace_id", "workspace_name", "account_email", "plan",
+		"time", "thread_id", "request_kind", "workspace_id", "workspace_name", "account_email", "plan",
 		"outcome", "reason", "model", "attempt", "http_status", "upstream_status",
 		"error_class", "failure_phase", "transport", "input_tokens", "cached_input_tokens",
 		"output_tokens", "total_tokens", "first_token_ms", "total_ms", "upstream_ms",
@@ -62,7 +62,7 @@ func (a *API) handleActivityCSV(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		_ = cw.Write([]string{
-			row.At.Format(time.RFC3339Nano), row.ThreadID, row.WorkspaceID, row.WorkspaceName,
+			row.At.Format(time.RFC3339Nano), row.ThreadID, row.RequestKind, row.WorkspaceID, row.WorkspaceName,
 			row.AccountEmail, row.AccountPlan, row.Outcome, row.Reason, row.Model,
 			strconv.Itoa(row.Attempt), csvOptionalInt(row.StatusCode), csvOptionalInt(row.UpstreamStatus),
 			row.ErrorClass, row.FailurePhase, row.Transport, csvInt64(row.InputTokens),
