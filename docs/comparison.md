@@ -11,8 +11,9 @@ as one executable. Feature count is therefore not a useful parity target.
 | Per-account quota and reset time | Individual account cards with current reported windows | Yes | Required and present |
 | Explicit account preference | Custom dashboard profiles and `relaypool`; eligible existing tasks switch between turns | Yes | Required and present |
 | Weekly quota pacing | Native per-request policy with editable target, paced workspaces and overflow | Static ordering and preservation controls | More flexible for a personal multi-account routine |
+| Dedicated subagent helpers | Native Codex subagent detection; profile-selected Luna helper with safe fallback | No equivalent personal-workflow control documented | More targeted for parent-plus-helper workflows |
 | Conversation ownership and safe failover | Durable ownership, reserve policy, pre-output quota retry | Yes | Required and present |
-| Explainable request log | Time, task ID, account, model, tokens, current quota, latency, outcome and reason | Richer configurable log | Required core is present |
+| Explainable request log | Time, task ID, parent/subagent kind, account, model, tokens, current quota, latency, outcome and reason | Richer configurable log | Required core is present |
 | Token and API-equivalent cost trends | Bounded activity plus durable hourly rollups | Richer daily reports | Present at personal-tool depth |
 | CSV export | Full retained activity export | Yes | Present |
 | Historical quota snapshots per turn | Point-in-time quota evidence is stored with each retained decision | More reporting | Present at personal-tool depth |

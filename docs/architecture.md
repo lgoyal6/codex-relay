@@ -36,10 +36,18 @@ scenario overrides to the copy, and calls the same function. It cannot mutate li
 ownership, and it consumes no model quota.
 
 **Profiles are data, not account-specific code.** A profile stores its command, aliases,
-workspace order, pacing inputs, default, handoff floor and disabled workspaces in SQLite.
+workspace order, pacing inputs, default, handoff floor, disabled workspaces and optional
+subagent helper preference in SQLite.
 The dashboard edits those records and `relaypool` activates them through the guarded local
 API. The service republishes the immutable snapshot before the activation call returns, so
 the next turn and the displayed preview use the same active profile.
+
+**Subagents are identified, not guessed.** Codex marks delegated work with subagent and
+parent-task metadata. The proxy converts those markers into `Request.IsSubagent`; it never
+infers delegation from a Luna model name. A matching delegated Luna request may prefer the
+profile's helper workspace, but hard eligibility and reserve rules still win. If that helper
+is unavailable, the ordinary profile order remains the fallback. Setup uses Codex's native
+`default_subagent_model` setting to request Luna for delegated work.
 
 **Ownership is required state, history is not.** Thread ownership is written
 transactionally, before any account-bound state is exposed, and a claim never steals an

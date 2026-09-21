@@ -12,7 +12,8 @@
    in its own database so rollback is precise later.
 
    If Codex is already using another provider, that line is **commented out**, not deleted,
-   and rollback restores it.
+   and rollback restores it. Setup also sets Codex's native `default_subagent_model` to
+   `gpt-5.6-luna`; an existing top-level value is commented out and restored on rollback.
 
 2. `codexrelay serve`
 
@@ -36,6 +37,11 @@ Nothing here requires editing a configuration file by hand.
    `relaypool`, so `relaypool profiles`, `relaypool status`, and `relaypool <command>` all use
    the same live service and policy as the dashboard. If the relay uses a non-default port,
    set `CODEXRELAY_ADDR`, for example `http://127.0.0.1:7815`.
+
+   To use a Free workspace for delegated work, enable **Luna helpers** in the profile and
+   choose that workspace. Parent turns still use the profile's normal priority or pace
+   policy. Only requests Codex marks as subagents are preferred to the helper, and an
+   unavailable helper falls back through the normal profile order.
 
 ### Verification requests
 
