@@ -10,9 +10,13 @@ function message(e: unknown): string {
 
 function uniqueCommand(base: string, state: State): string {
   const used = new Set(state.profiles.flatMap((p) => [p.command, ...p.aliases]));
-  let candidate = base;
+  const maxLength = 32;
+  let candidate = base.slice(0, maxLength);
   let n = 2;
-  while (used.has(candidate)) candidate = `${base}-${n++}`;
+  while (used.has(candidate)) {
+    const suffix = `-${n++}`;
+    candidate = `${base.slice(0, maxLength - suffix.length)}${suffix}`;
+  }
   return candidate;
 }
 
@@ -31,17 +35,23 @@ function blankProfile(state: State): RoutingProfile {
     default_workspace_id: ids[0] ?? "",
     handoff_below_percent: 2,
     disabled_workspace_ids: [],
+    subagent_helper_enabled: false,
+    subagent_helper_workspace_id: ids[0] ?? "",
+    subagent_helper_model: "gpt-5.6-luna",
   };
 }
 
 function profileSentence(profile: RoutingProfile, nameOf: (id: string) => string): string {
+  const helper = profile.subagent_helper_enabled
+    ? ` Delegated ${profile.subagent_helper_model || "Luna"} subagents prefer ${nameOf(profile.subagent_helper_workspace_id ?? "")} and fall back to this profile when unavailable.`
+    : "";
   if (profile.mode === "pace") {
     const paced = profile.pace_workspace_ids.map(nameOf).join(", ") || "no workspaces";
     const overflow = nameOf(profile.overflow_workspace_id ?? "") || "no overflow workspace";
-    return `Pace ${paced} toward ${profile.target_remaining_percent}% remaining at each weekly reset. Use ${overflow} as overflow while they are on schedule.`;
+    return `Pace ${paced} toward ${profile.target_remaining_percent}% remaining at each weekly reset. Use ${overflow} as overflow while they are on schedule.${helper}`;
   }
   const ordered = profile.priority_workspace_ids.map(nameOf).join(" -> ") || "no workspaces";
-  return `Try workspaces in this order: ${ordered}.`;
+  return `Try workspaces in this order: ${ordered}.${helper}`;
 }
 
 function OrderedWorkspaces({
@@ -67,9 +77,9 @@ function OrderedWorkspaces({
       {ids.map((id, index) => {
         const workspace = state.workspaces.find((w) => w.id === id);
         return (
-          <div className="row" key={id}>
+          <div className="row profile-order-row" key={id}>
             <span className="mono" style={{ minWidth: 22 }}>{index + 1}</span>
-            <span style={{ minWidth: 180 }}>{workspace?.name ?? id}</span>
+            <span className="profile-order-name">{workspace?.name ?? id}</span>
             <button className="btn sm" type="button" disabled={index === 0} onClick={() => move(index, -1)}>
               Up
             </button>
@@ -160,7 +170,7 @@ export function Profiles({ state, reload }: { state: State; reload: () => void }
   };
 
   const paceRows = useMemo(
-    () => state.pace_standings.map((standing) => ({ ...standing, name: nameOf(standing.workspace_id) })),
+    () => (state.pace_standings ?? []).map((standing) => ({ ...standing, name: nameOf(standing.workspace_id) })),
     [state.pace_standings, state.workspaces],
   );
 
@@ -187,17 +197,19 @@ export function Profiles({ state, reload }: { state: State; reload: () => void }
             New profile
           </button>
         </div>
-        {active ? (
-          <p className="note" style={{ marginTop: 10 }}>
-            Active: <strong>{active.name}</strong> via <code>relaypool {active.command}</code>. {active.sentence}
-          </p>
-        ) : (
-          <p className="note" style={{ marginTop: 10 }}>
-            No profile is active. Existing rules and the default workspace still control routing.
-          </p>
-        )}
-        <ErrorBox error={error} />
-        <OkBox message={ok} />
+        <div className="card-body">
+          {active ? (
+            <p className="note" style={{ margin: 0 }}>
+              Active: <strong>{active.name}</strong> via <code>relaypool {active.command}</code>. {active.sentence}
+            </p>
+          ) : (
+            <p className="note" style={{ margin: 0 }}>
+              No profile is active. Existing rules and the default workspace still control routing.
+            </p>
+          )}
+          <ErrorBox error={error} />
+          <OkBox message={ok} />
+        </div>
       </section>
 
       {active?.mode === "pace" && (
@@ -206,24 +218,26 @@ export function Profiles({ state, reload }: { state: State; reload: () => void }
             <h2 className="card-title">Weekly pace now</h2>
           </div>
           <div className="card-body">
-            <table className="grid">
-              <thead><tr><th>Workspace</th><th>Now</th><th>Target now</th><th>Difference</th><th>Status</th></tr></thead>
-              <tbody>
-                {paceRows.map((row) => (
-                  <tr key={row.workspace_id}>
-                    <td>{row.name}</td>
-                    {row.known ? (
-                      <>
-                        <td>{pct(row.remaining_percent)}</td>
-                        <td>{pct(row.expected_percent)}</td>
-                        <td>{row.delta_percent > 0 ? "+" : ""}{pct(row.delta_percent)}</td>
-                      </>
-                    ) : <td colSpan={3}>No weekly quota evidence</td>}
-                    <td>{row.status}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="table-wrap">
+              <table className="grid">
+                <thead><tr><th>Workspace</th><th>Now</th><th>Target now</th><th>Difference</th><th>Status</th></tr></thead>
+                <tbody>
+                  {paceRows.map((row) => (
+                    <tr key={row.workspace_id}>
+                      <td>{row.name}</td>
+                      {row.known ? (
+                        <>
+                          <td>{pct(row.remaining_percent)}</td>
+                          <td>{pct(row.expected_percent)}</td>
+                          <td>{row.delta_percent > 0 ? "+" : ""}{pct(row.delta_percent)}</td>
+                        </>
+                      ) : <td colSpan={3}>No weekly quota evidence</td>}
+                      <td>{row.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
       )}
@@ -240,11 +254,11 @@ export function Profiles({ state, reload }: { state: State; reload: () => void }
             <div className="inline-fields" style={{ marginBottom: 14 }}>
               <div className="field" style={{ minWidth: 220 }}>
                 <label htmlFor="profile-name">Name</label>
-                <input id="profile-name" value={draft.name} onChange={(e) => patch({ name: e.target.value })} />
+                <input id="profile-name" required value={draft.name} onChange={(e) => patch({ name: e.target.value })} />
               </div>
               <div className="field" style={{ minWidth: 180 }}>
                 <label htmlFor="profile-command">Command</label>
-                <input id="profile-command" className="mono" value={draft.command} onChange={(e) => patch({ command: e.target.value })} />
+                <input id="profile-command" className="mono" required value={draft.command} onChange={(e) => patch({ command: e.target.value })} />
                 <span className="hint">relaypool {draft.command || "command"}</span>
               </div>
               <div className="field" style={{ minWidth: 240 }}>
@@ -326,6 +340,50 @@ export function Profiles({ state, reload }: { state: State; reload: () => void }
               </div>
             </div>
 
+            <div className="compare" style={{ marginBottom: 18 }}>
+              <label className="row" style={{ alignItems: "flex-start" }}>
+                <input
+                  type="checkbox"
+                  checked={draft.subagent_helper_enabled}
+                  onChange={(e) => patch({ subagent_helper_enabled: e.target.checked })}
+                />
+                <span>
+                  <strong>Use a dedicated Luna workspace for delegated helpers</strong>
+                  <span className="hint" style={{ display: "block", marginTop: 3 }}>
+                    Parent tasks keep this profile's normal Sol routing. Only requests Codex marks as subagents use this preference.
+                  </span>
+                </span>
+              </label>
+              {draft.subagent_helper_enabled && (
+                <div className="inline-fields" style={{ marginTop: 14 }}>
+                  <div className="field" style={{ minWidth: 220 }}>
+                    <label htmlFor="profile-helper-workspace">Helper workspace</label>
+                    <select
+                      id="profile-helper-workspace"
+                      required
+                      value={draft.subagent_helper_workspace_id ?? ""}
+                      onChange={(e) => patch({ subagent_helper_workspace_id: e.target.value })}
+                    >
+                      <option value="">Choose a workspace</option>
+                      {state.workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                    </select>
+                    <span className="hint">If it cannot serve Luna, the normal profile order is used.</span>
+                  </div>
+                  <div className="field" style={{ minWidth: 190 }}>
+                    <label htmlFor="profile-helper-model">Helper model</label>
+                    <input
+                      id="profile-helper-model"
+                      className="mono"
+                      required
+                      value={draft.subagent_helper_model ?? ""}
+                      onChange={(e) => patch({ subagent_helper_model: e.target.value })}
+                    />
+                    <span className="hint">Setup configures Codex to use gpt-5.6-luna by default.</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="field" style={{ marginBottom: 18 }}>
               <label>Disable inside this profile</label>
               <div className="stack" style={{ gap: 6 }}>
@@ -375,6 +433,11 @@ export function Profiles({ state, reload }: { state: State; reload: () => void }
           <div className="card-body">
             <p style={{ marginTop: 0 }}>{profile.sentence}</p>
             <p className="note">Default: {nameOf(profile.default_workspace_id ?? "") || "global default"} · handoff floor: {pct(profile.handoff_below_percent)}</p>
+            {profile.subagent_helper_enabled && (
+              <p className="note">
+                Luna helpers: {nameOf(profile.subagent_helper_workspace_id ?? "")} · {profile.subagent_helper_model}
+              </p>
+            )}
             {profile.disabled_workspace_ids.length > 0 && <p className="note">Disabled here: {profile.disabled_workspace_ids.map(nameOf).join(", ")}</p>}
             <div className="actions">
               <button
@@ -393,11 +456,14 @@ export function Profiles({ state, reload }: { state: State; reload: () => void }
                 className="btn danger"
                 disabled={profile.active || busy !== null}
                 title={profile.active ? "Activate another profile before deleting this one." : undefined}
-                onClick={() => execute(`delete-${profile.id}`, async () => {
-                  await api.deleteProfile(profile.id);
-                  if (draft?.id === profile.id) setDraft(null);
-                  setOK(`Deleted ${profile.name}.`);
-                })}
+                onClick={() => {
+                  if (!window.confirm(`Delete the routing profile “${profile.name}”?`)) return;
+                  void execute(`delete-${profile.id}`, async () => {
+                    await api.deleteProfile(profile.id);
+                    if (draft?.id === profile.id) setDraft(null);
+                    setOK(`Deleted ${profile.name}.`);
+                  });
+                }}
               >
                 <IconTrash className="ico-sm" />
                 {busy === `delete-${profile.id}` ? "Deleting..." : "Delete"}

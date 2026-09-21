@@ -171,6 +171,7 @@ export function App() {
   if (!state) {
     return (
       <div className="shell">
+        <a className="skip-link" href="#main-content">Skip to main content</a>
         <header className="topbar">
           <div className="topbar-inner">
             <span className="brand">
@@ -182,7 +183,8 @@ export function App() {
             </span>
           </div>
         </header>
-        <main className="page">
+        <main id="main-content" className="page">
+          <h1 className="sr-only">codex-relay dashboard</h1>
           {loadError ? (
             <section className="card">
               <div className="card-body">
@@ -217,6 +219,7 @@ export function App() {
 
   return (
     <div className="shell">
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       <header className="topbar">
         <div className="topbar-inner">
           <span className="brand">
@@ -248,7 +251,8 @@ export function App() {
         </div>
       </header>
 
-      <main className="page">
+      <main id="main-content" className="page">
+        <h1 className="sr-only">codex-relay {TABS.find((item) => item.id === tab)?.label}</h1>
         {loadError && (
           <section className="card">
             <div className="card-body">

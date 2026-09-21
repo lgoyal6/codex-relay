@@ -40,7 +40,7 @@ export function Activity({
   models: ModelReportRow[];
   loading: boolean;
 }) {
-  const [only, setOnly] = useState<"all" | "blocked" | "errors">("all");
+  const [only, setOnly] = useState<"all" | "subagents" | "blocked" | "errors">("all");
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const nameOf = (id?: string) => (id ? state.workspaces.find((w) => w.id === id)?.name ?? id : "-");
@@ -73,6 +73,7 @@ export function Activity({
   };
 
   const rows = useMemo(() => {
+    if (only === "subagents") return activity.filter((r) => r.request_kind === "subagent");
     if (only === "blocked") return activity.filter((r) => r.outcome !== "selected");
     if (only === "errors") return activity.filter((r) => r.error_class || (r.status_code ?? 0) >= 400);
     return activity;
@@ -113,6 +114,7 @@ export function Activity({
               <label htmlFor="act-filter">Show</label>
               <select id="act-filter" value={only} onChange={(e) => setOnly(e.target.value as typeof only)}>
                 <option value="all">All decisions</option>
+                <option value="subagents">Subagents only</option>
                 <option value="blocked">Blocked only</option>
                 <option value="errors">Errors only</option>
               </select>
@@ -226,7 +228,10 @@ export function Activity({
                   <tr key={r.id}>
                     <td className="mono">{clockText(r.at)}</td>
                     <td className="mono" title={r.thread_id ?? "No thread id reported"}>
-                      {shortThread(r.thread_id)}
+                      <div>{shortThread(r.thread_id)}</div>
+                      <Badge kind={r.request_kind === "subagent" ? "info" : "neutral"}>
+                        {r.request_kind === "subagent" ? "subagent" : "parent"}
+                      </Badge>
                     </td>
                     <td style={{ maxWidth: 380 }}>
                       <div className="row" style={{ gap: 6, marginBottom: 2 }}>

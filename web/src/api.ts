@@ -23,7 +23,8 @@ export type ReasonCode =
   | "preferred_by_profile"
   | "disabled_by_profile"
   | "weekly_pace"
-  | "pace_overflow";
+  | "pace_overflow"
+  | "subagent_helper";
 
 export interface Note {
   code: ReasonCode;
@@ -120,6 +121,9 @@ export interface RoutingProfile {
   default_workspace_id?: string;
   handoff_below_percent: number;
   disabled_workspace_ids: string[];
+  subagent_helper_enabled: boolean;
+  subagent_helper_workspace_id?: string;
+  subagent_helper_model?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -239,6 +243,7 @@ export interface ActivityRow {
   at: string;
   thread_id?: string;
   model?: string;
+  request_kind: "parent" | "subagent";
   outcome: string;
   workspace_id?: string;
   workspace_name?: string;
