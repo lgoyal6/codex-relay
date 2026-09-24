@@ -110,6 +110,62 @@ func (g *Guard) Wrap(next http.Handler) http.Handler {
 	})
 }
 
+// WrapProxy guards the Codex traffic path, which the dashboard guard cannot cover.
+//
+// The proxy cannot ask for the dashboard token: its caller is Codex, a native client that
+// never loads the dashboard page. Binding to loopback does not make that safe, for the
+// same reason it does not make the dashboard safe: a loopback listener is reachable from
+// every page the user's browser loads. The stakes are higher here. This path spends quota
+// with a stored sign-in, and browsers apply no CORS to WebSockets, so a page that can open
+// the socket can run a Codex turn on the user's account and read the answer back.
+//
+// What separates Codex from a page is that Codex sends no Origin, while a browser sends one
+// on every request that could spend quota: every WebSocket upgrade and every cross-origin
+// POST. So:
+//
+//  1. Host must be a literal loopback address with our port, exactly as for the dashboard.
+//     This is the DNS rebinding defence, and it also covers a rebound GET, which carries
+//     no Origin.
+//  2. An Origin a web page could have produced is refused unless it is a loopback origin on
+//     our port. That is every http and https origin, and "null", which any page can produce
+//     from a sandboxed frame. An Origin with another scheme belongs to a local application
+//     that embeds a browser, and no page can send one.
+func (g *Guard) WrapProxy(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := g.CheckHost(r); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		if err := g.checkProxyOrigin(r); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (g *Guard) checkProxyOrigin(r *http.Request) error {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return nil
+	}
+	refused := fmt.Errorf("a web page is not allowed to send traffic through codex-relay")
+	if origin == "null" {
+		return refused
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return refused
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		if !isLoopbackLiteral(u.Hostname()) || (u.Port() != "" && u.Port() != g.port) {
+			return refused
+		}
+	}
+	return nil
+}
+
 func isLoopbackLiteral(h string) bool {
 	h = strings.Trim(h, "[]")
 	if h == "localhost" {
