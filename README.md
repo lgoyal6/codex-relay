@@ -9,6 +9,10 @@ credential store.
 
 > The binary is `codexrelay`; the repository and module are `codex-relay`.
 
+![The codex-relay dashboard: the account that will serve the next conversation, and what
+each pooled account has left in every quota window it reports. Account names in this
+screenshot are examples.](docs/screenshots/dashboard.png)
+
 ## What it does
 
 - Connects one or more ChatGPT workspaces, each with its own independent browser sign-in.
