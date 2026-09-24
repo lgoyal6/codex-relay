@@ -254,6 +254,31 @@ func (a *API) handlePreview(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleSimulate answers "when does the routing change", by walking one workspace's quota
+// down through the real evaluator. It is a read: nothing here alters state, and the result
+// is labelled simulated so the dashboard cannot present it as a live decision.
+func (a *API) handleSimulate(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		WorkspaceID   string `json:"workspace_id"`
+		WindowMinutes int64  `json:"window_minutes"`
+		Model         string `json:"model"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, 400, fmt.Errorf("could not read the simulation request: %w", err))
+		return
+	}
+	if body.WorkspaceID == "" {
+		writeErr(w, 400, fmt.Errorf("choose which workspace to drain"))
+		return
+	}
+	sim, err := a.Svc.SimulateDrain(r.Context(), body.WorkspaceID, body.WindowMinutes, body.Model)
+	if err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	writeJSON(w, 200, sim)
+}
+
 func (a *API) handleConnect(w http.ResponseWriter, r *http.Request) {
 	if a.Connector == nil {
 		writeErr(w, 501, fmt.Errorf("connecting accounts is not available in this build"))
