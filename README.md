@@ -123,6 +123,9 @@ the exact boundary is stated in [docs/compatibility.md](docs/compatibility.md).
   an account is refused rather than downgraded to a plaintext file.
 - The dashboard binds to loopback and requires a session token, a literal loopback `Host`,
   and a loopback `Origin`. A hostname that merely resolves to 127.0.0.1 is refused.
+- The Codex proxy cannot require that token, because Codex never loads the dashboard. It
+  requires a literal loopback `Host` and refuses any `Origin` a web page could send, so a
+  page open in your browser cannot run a Codex turn through your accounts.
 - History never contains prompt text, conversation bodies, credentials or access tokens. It
   stores the model-reported input, cached-input, output and total token counts for each turn.
   The diagnostic export is redacted by design.

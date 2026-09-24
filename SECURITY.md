@@ -21,6 +21,9 @@ fixes. After stable releases begin, this file will list the supported release li
 ## Security boundaries
 
 - The dashboard and proxy are loopback-only and are not designed for remote exposure.
+- The proxy refuses any request carrying a web-page `Origin` (every http, https or `null`
+  origin other than the dashboard's own) and requires a literal loopback `Host`, so a page in
+  the user's browser cannot run turns through pooled accounts.
 - OAuth credentials belong only in the operating system credential store.
 - Unknown routes fail closed without a pooled credential.
 - A streamed turn is never retried after output starts.
