@@ -424,6 +424,28 @@ async function download(path: string): Promise<Blob> {
   return resp.blob();
 }
 
+export type SimulationBand = {
+  from_percent: number;
+  to_percent: number;
+  outcome: string;
+  workspace_id?: string;
+  workspace_name?: string;
+  primary_reason: string;
+  summary: string;
+  drained_detail?: string;
+};
+
+export type Simulation = {
+  workspace_id: string;
+  workspace_name: string;
+  window_minutes: number;
+  window_label: string;
+  from_percent: number;
+  bands: SimulationBand[];
+  handoff_floor_percent: number;
+  other_workspaces_unchanged: boolean;
+};
+
 export const api = {
   state: () => call<State>("/api/state"),
   activity: (limit = 100) => call<{ activity: ActivityRow[] }>(`/api/activity?limit=${limit}`),
@@ -440,6 +462,12 @@ export const api = {
     call<{ deleted: boolean; state_version: number }>(`/api/rules/${encodeURIComponent(id)}`, {
       method: "DELETE",
     }),
+  simulate: (workspaceId: string, windowMinutes: number, model: string) =>
+    call<Simulation>("/api/routing/simulate", {
+      method: "POST",
+      body: JSON.stringify({ workspace_id: workspaceId, window_minutes: windowMinutes, model }),
+    }),
+
   preview: (rules: Rule[] | null, model: string, scenarios: Scenario[]) =>
     call<{ decision: Decision; simulated: boolean; state_version: number; evaluated_at: string }>(
       "/api/rules/preview",

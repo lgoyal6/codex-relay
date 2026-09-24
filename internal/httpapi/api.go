@@ -44,6 +44,7 @@ func (a *API) Routes() *http.ServeMux {
 
 	mux.HandleFunc("POST /api/rules", a.handleSaveRule)
 	mux.HandleFunc("POST /api/rules/preview", a.handlePreview)
+	mux.HandleFunc("POST /api/routing/simulate", a.handleSimulate)
 	mux.HandleFunc("DELETE /api/rules/{id}", a.handleDeleteRule)
 	mux.HandleFunc("GET /api/profiles", a.handleListProfiles)
 	mux.HandleFunc("POST /api/profiles", a.handleSaveProfile)

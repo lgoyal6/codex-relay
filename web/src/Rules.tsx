@@ -92,6 +92,8 @@ export function Rules({
   draft: Rule | null;
   setDraft: (r: Rule | null) => void;
 }) {
+  // Which profile is in charge, if any. A prefer rule is not the final word while one is.
+  const activeProfile = state.profiles.find((p) => p.id === state.active_profile_id) ?? null;
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<{ id: string; version: number; sentence: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -555,6 +557,15 @@ export function Rules({
           </h2>
         </div>
         <div className="card-body">
+        {/* Two systems decide routing and only one of them can win. Saying so here, where the
+            rules are, is the difference between a rule that looks active and a rule that is. */}
+        {activeProfile && state.rules.some((r) => r.enabled && r.kind === "prefer") && (
+          <p className="note" style={{ marginTop: 0 }}>
+            The <strong>{activeProfile.name}</strong> profile is active, so it orders
+            eligible workspaces first and these preferences apply after it. Protection rules are
+            not affected: a profile cannot route to a workspace a reserve rule is holding back.
+          </p>
+        )}
         {state.rules.length === 0 ? (
           <div className="empty">No rules yet. Every workspace that is connected and not paused is eligible.</div>
         ) : (
@@ -564,6 +575,14 @@ export function Rules({
                 <div className="row" style={{ gap: 7, marginBottom: 3 }}>
                   <Badge kind={r.kind === "reserve" ? "protect" : "neutral"}>{r.kind}</Badge>
                   {r.enabled ? <Badge kind="ok">on</Badge> : <Badge kind="neutral">off</Badge>}
+                  {r.enabled && r.kind === "prefer" && activeProfile && (
+                    <Badge
+                      kind="neutral"
+                      title={`The ${activeProfile.name} profile orders workspaces first. This preference is consulted after it.`}
+                    >
+                      after the profile
+                    </Badge>
+                  )}
                 </div>
                 <p className="sentence">
                   <IconShield className="ico" />

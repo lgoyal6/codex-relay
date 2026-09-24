@@ -2,7 +2,7 @@
 // every workspace has left; what needs attention; and what was decided recently.
 
 import { useEffect, useState } from "react";
-import type { ActivityRow, Decision, Rule, State } from "./api";
+import type { ActivityRow, Decision, Rule, Simulation, State } from "./api";
 import { ApiError, api } from "./api";
 import {
   Badge,
@@ -282,6 +282,8 @@ export function Overview({
         )}
       </Card>
 
+      <RoutingTimeline state={state} />
+
       <StatTiles state={state} />
 
       <CostNote state={state} />
@@ -390,6 +392,104 @@ export function Overview({
  * this tool cannot know. Projections are deferred. Every tile below is a count of something
  * that actually happened.
  */
+/**
+ * RoutingTimeline answers the question the rest of this page cannot: not "who serves the next
+ * turn" but "when does that stop being true".
+ *
+ * A reserve threshold and a handoff floor are both invisible until the moment they fire. You
+ * can read a rule back in plain English and still not know that it changes everything at 24%
+ * remaining. This walks one account's quota down and asks the service what it would do at
+ * every step, so the boundaries are the engine's own, not a second guess at them.
+ */
+function RoutingTimeline({ state }: { state: State }) {
+  const eligible = state.workspaces.filter((w) => w.windows.length > 0);
+  const [workspaceId, setWorkspaceId] = useState("");
+  const [sim, setSim] = useState<Simulation | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // Default to the account that serves now, because that is the one whose exhaustion changes
+  // something. Falling back to the first is only for a pool with no decision yet.
+  const target =
+    workspaceId ||
+    (eligible.some((w) => w.id === state.proposed?.workspace_id)
+      ? state.proposed!.workspace_id!
+      : (eligible[0]?.id ?? ""));
+
+  useEffect(() => {
+    if (!target) return;
+    let live = true;
+    setBusy(true);
+    setError(null);
+    api
+      .simulate(target, 0, "")
+      .then((s) => live && setSim(s))
+      .catch((e) => live && setError(e instanceof ApiError ? e.message : String(e)))
+      .finally(() => live && setBusy(false));
+    return () => {
+      live = false;
+    };
+  }, [target, state.version]);
+
+  if (eligible.length === 0) return null;
+
+  return (
+    <Card
+      title="If this account keeps draining"
+      icon={<IconGauge className="ico-sm" />}
+      actions={
+        eligible.length > 1 ? (
+          <select
+            className="input sm"
+            value={target}
+            onChange={(e) => setWorkspaceId(e.target.value)}
+            aria-label="Which account to drain"
+          >
+            {eligible.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
+              </option>
+            ))}
+          </select>
+        ) : undefined
+      }
+    >
+      {error ? (
+        <p className="note">{error}</p>
+      ) : !sim || sim.bands.length === 0 ? (
+        <p className="note">{busy ? "Working it out…" : "Nothing to simulate yet."}</p>
+      ) : (
+        <>
+          <p className="subline" style={{ marginTop: 0 }}>
+            Simulated. {sim.workspace_name}&apos;s {sim.window_label} window from{" "}
+            {Math.round(sim.from_percent)}% down to nothing
+            {sim.other_workspaces_unchanged ? ", with every other account held where it is" : ""}.
+          </p>
+          <ol className="timeline">
+            {sim.bands.map((b, i) => (
+              <li key={i} className={b.outcome === "blocked" ? "tl-blocked" : undefined}>
+                <span className="tl-range">
+                  {Math.round(b.from_percent)}%
+                  {b.to_percent !== b.from_percent ? ` – ${Math.round(b.to_percent)}%` : ""}
+                </span>
+                <span className="tl-target">
+                  {b.workspace_name || (b.outcome === "blocked" ? "nothing can serve" : "—")}
+                </span>
+                <span className="tl-why">{b.drained_detail || b.summary}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="note">
+            One account moves; the rest are held at today&apos;s readings, so this shows what the
+            rules do, not what next week will look like. A workspace stops being eligible at{" "}
+            {sim.handoff_floor_percent}% remaining.
+          </p>
+        </>
+      )}
+    </Card>
+  );
+}
+
 function StatTiles({ state }: { state: State }) {
   const s = state.summary;
   const days = Math.round(s.window_hours / 24);
