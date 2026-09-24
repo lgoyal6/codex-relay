@@ -43,13 +43,21 @@ The signature rule, configured entirely in the dashboard:
 
 ## Install and run
 
-Requires Go 1.25+ to build, and Node 20+ to compile the dashboard. Node is a contributor
-build dependency only.
+Download the archive for your platform from [the latest
+release](https://github.com/lgoyal6/codex-relay/releases/latest), check it against
+`SHA256SUMS`, and unpack it. It contains the `codexrelay` executable and the `relaypool`
+wrapper, and needs no runtime: no Go, no Node, no Docker.
+
+```
+./codexrelay setup   # detects Codex, previews the config change, applies it
+./codexrelay serve   # runs the service and dashboard on 127.0.0.1:7788
+```
+
+To build it yourself instead, you need Go 1.25+ and Node 20+ to compile the dashboard.
+Node is a build dependency only; the compiled dashboard ships inside the executable.
 
 ```
 make build          # compiles the dashboard, codexrelay, and the relaypool wrapper into bin/
-./bin/codexrelay setup   # detects Codex, previews the config change, applies it
-./bin/codexrelay serve   # runs the service and dashboard on 127.0.0.1:7788
 ```
 
 `setup` shows you the exact lines it will add before it writes anything, and takes a backup.
