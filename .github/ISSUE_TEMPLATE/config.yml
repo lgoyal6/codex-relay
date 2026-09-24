@@ -1,0 +1,7 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/lgoyal6/codex-relay/security/advisories/new
+    about: >-
+      Report credential exposure, authentication bypass, cross-account routing or request
+      replay privately. Please do not open a public issue for these.

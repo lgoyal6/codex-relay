@@ -1,0 +1,74 @@
+name: Bug report
+description: Something routed, refused or reported differently than it should have
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Please do not paste credentials, access tokens, real account ids, conversation ids or
+        prompt text. `codexrelay doctor` is redacted by design and is the safest thing to
+        attach.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `codexrelay version`.
+      placeholder: codexrelay 0.1.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows
+    validations:
+      required: true
+
+  - type: dropdown
+    id: client
+    attributes:
+      label: Which Codex client
+      options:
+        - Codex CLI
+        - Codex IDE extension
+        - Codex desktop app
+        - Other or not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: decision
+    attributes:
+      label: What the dashboard said about the decision
+      description: >-
+        If this is about routing, open "Why this workspace?" on Overview, or the matching row
+        under Activity, and paste the explanation. It names the rule that matched and the
+        comparison it made, which is usually the whole answer.
+      render: text
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Diagnostics
+      description: Output of `codexrelay doctor`. Optional, but it shortens most bugs.
+      render: text
+
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Before submitting
+      options:
+        - label: I removed credentials, account ids, conversation ids and prompt text.
+          required: true

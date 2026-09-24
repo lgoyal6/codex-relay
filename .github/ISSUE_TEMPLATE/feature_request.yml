@@ -1,0 +1,28 @@
+name: Feature request
+description: Suggest a capability or a change in behaviour
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Some things are deliberately out of scope: codex-relay binds to loopback and is not
+        built for remote or team access, it speaks Codex's protocol rather than an
+        OpenAI-compatible API, and it never derives a quota figure or predicts one. A request
+        that changes any of those is worth opening, but say why the tradeoff should move.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do, and what stops you today
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you would expect it to do instead
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried, including rules or profiles that came close
