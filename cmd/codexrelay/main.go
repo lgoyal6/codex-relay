@@ -187,9 +187,11 @@ func cmdServe(args []string) error {
 	})
 
 	mux := http.NewServeMux()
-	// Codex traffic. No dashboard session is required here: this is the local client, and
-	// it authenticates to us by being on loopback, exactly as codex-lb's provider does.
-	mux.Handle("/backend-api/", p)
+	// Codex traffic. No dashboard session is required here, because Codex never sees the
+	// dashboard page. Being on loopback is not enough on its own, though: every page the
+	// user's browser loads can reach this listener. WrapProxy refuses the requests only a
+	// page could send, which Codex never does.
+	mux.Handle("/backend-api/", guard.WrapProxy(p))
 	mux.Handle("/api/", guard.Wrap(api.Routes()))
 	mux.Handle("/", httpapi.Dashboard(guard.Token(), Version))
 

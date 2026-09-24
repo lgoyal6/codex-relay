@@ -157,8 +157,10 @@ func (p *Proxy) serveWebSocket(w http.ResponseWriter, r *http.Request, route Rou
 	}
 
 	down, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// The client is Codex on loopback, not a browser; origin checking does not apply
-		// here and the listener is bound to loopback.
+		// Origin policy is enforced once, in front of the whole proxy, by
+		// httpapi.Guard.WrapProxy, so it covers HTTP and WebSocket alike. The library's own
+		// check is off because it demands Origin host == Host, which would also refuse a
+		// local app whose embedded browser sends a non-http Origin.
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
