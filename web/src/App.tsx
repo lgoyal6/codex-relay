@@ -43,9 +43,18 @@ function BrandMark() {
   );
 }
 
+// localStorage throws rather than returning null when the browser refuses storage to
+// this page, which happens whenever the dashboard is embedded from another origin or
+// the reader has third-party storage turned off. This runs during the first render, so
+// letting it throw takes the entire dashboard down to a blank page. Remembering a
+// colour scheme is not worth that.
 function readTheme(): Theme {
-  const v = localStorage.getItem("codexrelay.theme");
-  return v === "light" || v === "dark" ? v : "system";
+  try {
+    const v = localStorage.getItem("codexrelay.theme");
+    return v === "light" || v === "dark" ? v : "system";
+  } catch {
+    return "system";
+  }
 }
 
 export function App() {
@@ -66,7 +75,11 @@ export function App() {
 
   const setTheme = (t: Theme) => {
     setThemeState(t);
-    localStorage.setItem("codexrelay.theme", t);
+    try {
+      localStorage.setItem("codexrelay.theme", t);
+    } catch {
+      // The choice still applies for this visit. It just will not be remembered.
+    }
   };
 
   useEffect(() => {
