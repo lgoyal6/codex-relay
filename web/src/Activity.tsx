@@ -4,7 +4,7 @@
 import { useMemo, useState } from "react";
 import type { ActivityRow, ModelReportRow, State } from "./api";
 import { api } from "./api";
-import { Badge, EmptyState, Expando, clockText, pct, reasonText } from "./ui";
+import { Badge, EmptyState, Expando, fullStamp, pct, reasonText, stampText } from "./ui";
 import { IconInbox, IconList } from "./icons";
 
 // null means the value was never measured; 0 means it was measured as under a millisecond.
@@ -47,8 +47,10 @@ export function Activity({
   const quotaAtTurn = (r: ActivityRow) => {
     if (!r.quota_snapshot) return "not recorded";
     if (r.quota_snapshot.windows.length === 0) return "no quota reported";
+    // Used, not remaining. "83% used" is the number a person is watching climb; the
+    // remaining figure is kept beside it because that is what the rules are written against.
     return r.quota_snapshot.windows
-      .map((window) => `${window.label} ${pct(window.remaining_percent)}`)
+      .map((w) => `${w.label} ${pct(100 - w.remaining_percent)} used (${pct(w.remaining_percent)} left)`)
       .join(" · ");
   };
 
@@ -226,7 +228,7 @@ export function Activity({
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
-                    <td className="mono">{clockText(r.at)}</td>
+                    <td className="mono" title={fullStamp(r.at)}>{stampText(r.at)}</td>
                     <td className="mono" title={r.thread_id ?? "No thread id reported"}>
                       <div>{shortThread(r.thread_id)}</div>
                       <Badge kind={r.request_kind === "subagent" ? "info" : "neutral"}>
@@ -286,7 +288,7 @@ export function Activity({
                     <td className="num" title="Input, cached input, output, and total are in the explanation">
                       {tokens(r)}
                     </td>
-                    <td title={r.quota_snapshot ? `Captured ${clockText(r.quota_snapshot.captured_at)}` : "Historical snapshot unavailable"}>
+                    <td title={r.quota_snapshot ? `Captured ${fullStamp(r.quota_snapshot.captured_at)}` : "Historical snapshot unavailable"}>
                       {quotaAtTurn(r)}
                     </td>
                     <td className="mono">{r.model ?? "-"}</td>

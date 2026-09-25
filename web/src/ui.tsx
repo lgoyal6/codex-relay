@@ -207,6 +207,32 @@ export function agoText(iso: string, now: Date): string {
   return `${Math.round(h / 24)} days ago`;
 }
 
+/**
+ * stampText is a log timestamp: the date as well as the clock.
+ *
+ * A bounded history still spans days, and "01:44" alone cannot tell you whether a turn
+ * happened twenty minutes ago or last Tuesday. The year is left off unless the row is
+ * actually from another year, because printing it on every line buys nothing.
+ */
+export function stampText(iso: string, now: Date = new Date()): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const sameYear = d.getFullYear() === now.getFullYear();
+  const date = d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return `${date}, ${time}`;
+}
+
+/** fullStamp is the unabbreviated local timestamp, for a title attribute. */
+export function fullStamp(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString(undefined, { dateStyle: "full", timeStyle: "medium" });
+}
+
 export function clockText(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
