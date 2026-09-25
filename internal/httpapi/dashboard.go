@@ -35,10 +35,23 @@ func Dashboard(token, version string) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A strict local policy: no remote scripts, styles, fonts, images or connections.
+		//
+		// frame-ancestors is the deliberate exception. The dashboard binds loopback and
+		// refuses to bind anything else, so the only way to read it from another device
+		// is to put a proxy in front of it, and a proxy that cannot be framed cannot be
+		// embedded in whatever page that device already uses. Allowing any ancestor is
+		// what makes that possible.
+		//
+		// The cost is clickjacking, and it is worth stating plainly. The session token
+		// is injected into the page and the same-origin policy keeps a framing page from
+		// reading it, so nothing here leaks data. What a hostile page can do is stack
+		// itself over the frame and collect a click that lands on a control it chose.
+		// Every control in this dashboard changes routing, and routing decides which
+		// account pays.
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "+
 				"img-src 'self' data:; font-src 'self'; connect-src 'self'; "+
-				"base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+				"base-uri 'none'; form-action 'none'; frame-ancestors *")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 

@@ -24,6 +24,14 @@ fixes. After stable releases begin, this file will list the supported release li
 - The proxy refuses any request carrying a web-page `Origin` (every http, https or `null`
   origin other than the dashboard's own) and requires a literal loopback `Host`, so a page in
   the user's browser cannot run turns through pooled accounts.
+- The dashboard may be embedded in a frame by any page (`frame-ancestors *`). This is
+  deliberate, so that a proxy on your own network can present the real dashboard rather
+  than a reimplementation of it. The session token is injected into the page and the
+  same-origin policy keeps a framing page from reading it, so framing leaks nothing. The
+  residual risk is clickjacking: a hostile page you visit can frame the dashboard and try
+  to collect a click on a control of its choosing, and every control here changes which
+  account pays. If you do not need remote access, run with the dashboard closed, or put a
+  reverse proxy in front of it that sets a `frame-ancestors` policy you want.
 - OAuth credentials belong only in the operating system credential store.
 - Unknown routes fail closed without a pooled credential.
 - A streamed turn is never retried after output starts.
