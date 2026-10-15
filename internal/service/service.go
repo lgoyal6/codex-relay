@@ -217,13 +217,20 @@ func (s *Service) observeQuota(ctx context.Context, workspaceID string, snaps []
 			// (workspace, limit_id, minutes) but the evaluator keys on minutes alone, so two
 			// names for one real limit became two rows that collapsed unpredictably into one
 			// reading. The name is informational; the duration is the identity.
-			if _, err := s.DB.SQL().ExecContext(ctx, `
+			tx, err := s.DB.SQL().BeginTx(ctx, nil)
+			if err != nil {
+				s.Log.Warn("could not begin quota update", "error", err)
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `
 				DELETE FROM quota_windows
 				WHERE workspace_id = ? AND window_minutes = ? AND limit_id <> ?`,
 				workspaceID, w.Minutes, snap.LimitID); err != nil {
+				_ = tx.Rollback()
 				s.Log.Warn("could not clear superseded quota rows", "error", err)
+				continue
 			}
-			_, err := s.DB.SQL().ExecContext(ctx, `
+			_, err = tx.ExecContext(ctx, `
 				INSERT INTO quota_windows (workspace_id, limit_id, window_minutes, used_percent, resets_at, observed_at, source)
 				VALUES (?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(workspace_id, limit_id, window_minutes) DO UPDATE SET
@@ -233,7 +240,12 @@ func (s *Service) observeQuota(ctx context.Context, workspaceID string, snaps []
 					source = excluded.source`,
 				workspaceID, snap.LimitID, w.Minutes, w.UsedPercent, resets, now.Format(time.RFC3339Nano), source)
 			if err != nil {
+				_ = tx.Rollback()
 				s.Log.Warn("could not store quota reading", "error", err)
+				continue
+			}
+			if err := tx.Commit(); err != nil {
+				s.Log.Warn("could not commit quota reading", "error", err)
 			}
 		}
 	}
