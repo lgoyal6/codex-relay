@@ -36,6 +36,7 @@ type RoutingProfile struct {
 	DisabledWorkspaceIDs      []string    `json:"disabled_workspace_ids"`
 	SubagentHelperEnabled     bool        `json:"subagent_helper_enabled"`
 	SubagentHelperWorkspaceID string      `json:"subagent_helper_workspace_id,omitempty"`
+	SubagentHelperFallbackID  string      `json:"subagent_helper_fallback_workspace_id,omitempty"`
 	SubagentHelperModel       string      `json:"subagent_helper_model,omitempty"`
 	CreatedAt                 time.Time   `json:"created_at,omitempty"`
 	UpdatedAt                 time.Time   `json:"updated_at,omitempty"`
@@ -115,7 +116,7 @@ func (p RoutingProfile) Validate(known map[string]bool) error {
 	allIDs := append([]string{}, p.PriorityWorkspaceIDs...)
 	allIDs = append(allIDs, p.PaceWorkspaceIDs...)
 	allIDs = append(allIDs, p.OverflowWorkspaceID, p.DefaultWorkspaceID)
-	allIDs = append(allIDs, p.SubagentHelperWorkspaceID)
+	allIDs = append(allIDs, p.SubagentHelperWorkspaceID, p.SubagentHelperFallbackID)
 	allIDs = append(allIDs, p.DisabledWorkspaceIDs...)
 	for _, id := range allIDs {
 		if id != "" && !known[id] {
@@ -148,12 +149,15 @@ func (p RoutingProfile) Validate(known map[string]bool) error {
 		if p.SubagentHelperModel == "" {
 			return fmt.Errorf("Luna helpers need a helper model")
 		}
+		if p.SubagentHelperFallbackID == p.SubagentHelperWorkspaceID {
+			return fmt.Errorf("the fallback helper must differ from the helper workspace")
+		}
 	}
 	disabled := map[string]bool{}
 	for _, id := range p.DisabledWorkspaceIDs {
 		disabled[id] = true
 	}
-	if p.SubagentHelperEnabled && disabled[p.SubagentHelperWorkspaceID] {
+	if p.SubagentHelperEnabled && (disabled[p.SubagentHelperWorkspaceID] || disabled[p.SubagentHelperFallbackID]) {
 		return fmt.Errorf("the helper workspace cannot also be disabled")
 	}
 	available := 0
@@ -171,8 +175,12 @@ func (p RoutingProfile) Validate(known map[string]bool) error {
 func (p RoutingProfile) Sentence(nameOf func(string) string) string {
 	helper := ""
 	if p.SubagentHelperEnabled {
+		helpers := nameOf(p.SubagentHelperWorkspaceID)
+		if p.SubagentHelperFallbackID != "" {
+			helpers += ", then " + nameOf(p.SubagentHelperFallbackID) + ","
+		}
 		helper = fmt.Sprintf(" Delegated %s subagents prefer %s and fall back to this profile when unavailable.",
-			p.SubagentHelperModel, nameOf(p.SubagentHelperWorkspaceID))
+			p.SubagentHelperModel, helpers)
 	}
 	if p.Mode == ProfilePace {
 		names := make([]string, 0, len(p.PaceWorkspaceIDs))
