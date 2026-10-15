@@ -43,7 +43,7 @@ function blankProfile(state: State): RoutingProfile {
 
 function profileSentence(profile: RoutingProfile, nameOf: (id: string) => string): string {
   const helper = profile.subagent_helper_enabled
-    ? ` Delegated ${profile.subagent_helper_model || "Luna"} subagents prefer ${nameOf(profile.subagent_helper_workspace_id ?? "")} and fall back to this profile when unavailable.`
+    ? ` Delegated ${profile.subagent_helper_model || "Luna"} subagents prefer ${nameOf(profile.subagent_helper_workspace_id ?? "")}${profile.subagent_helper_fallback_workspace_id ? `, then ${nameOf(profile.subagent_helper_fallback_workspace_id)},` : ""} and fall back to this profile when unavailable.`
     : "";
   if (profile.mode === "pace") {
     const paced = profile.pace_workspace_ids.map(nameOf).join(", ") || "no workspaces";
@@ -367,7 +367,21 @@ export function Profiles({ state, reload }: { state: State; reload: () => void }
                       <option value="">Choose a workspace</option>
                       {state.workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
                     </select>
-                    <span className="hint">If it cannot serve Luna, the normal profile order is used.</span>
+                    <span className="hint">If it cannot serve Luna, the fallback helper is tried next.</span>
+                  </div>
+                  <div className="field" style={{ minWidth: 220 }}>
+                    <label htmlFor="profile-helper-fallback">Fallback helper</label>
+                    <select
+                      id="profile-helper-fallback"
+                      value={draft.subagent_helper_fallback_workspace_id ?? ""}
+                      onChange={(e) => patch({ subagent_helper_fallback_workspace_id: e.target.value })}
+                    >
+                      <option value="">None</option>
+                      {state.workspaces
+                        .filter((w) => w.id !== draft.subagent_helper_workspace_id)
+                        .map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                    </select>
+                    <span className="hint">If neither helper can serve Luna, the normal profile order is used.</span>
                   </div>
                   <div className="field" style={{ minWidth: 190 }}>
                     <label htmlFor="profile-helper-model">Helper model</label>
@@ -435,7 +449,8 @@ export function Profiles({ state, reload }: { state: State; reload: () => void }
             <p className="note">Default: {nameOf(profile.default_workspace_id ?? "") || "global default"} · handoff floor: {pct(profile.handoff_below_percent)}</p>
             {profile.subagent_helper_enabled && (
               <p className="note">
-                Luna helpers: {nameOf(profile.subagent_helper_workspace_id ?? "")} · {profile.subagent_helper_model}
+                Luna helpers: {nameOf(profile.subagent_helper_workspace_id ?? "")}
+                {profile.subagent_helper_fallback_workspace_id ? `, then ${nameOf(profile.subagent_helper_fallback_workspace_id)}` : ""} · {profile.subagent_helper_model}
               </p>
             )}
             {profile.disabled_workspace_ids.length > 0 && <p className="note">Disabled here: {profile.disabled_workspace_ids.map(nameOf).join(", ")}</p>}
