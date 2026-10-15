@@ -32,6 +32,14 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 	threadID := conversationID(r)
 	model, rawBody := modelFromBody(r)
 	requestKind := turnKind(r)
+	isImage := Classify(r.URL.Path).Class == ClassImageGeneration
+	policyModel := model
+	if isImage {
+		requestKind = "image"
+		// /codex/models describes chat eligibility, not gpt-image-2. Let upstream
+		// establish image eligibility while retaining profile and quota protections.
+		policyModel = ""
+	}
 	isSubagent := requestKind == "subagent"
 
 	// Authenticate before anything else. Until this existed the proxy was open to every
@@ -57,7 +65,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d := p.opt.Selector.Decide(r.Context(), policy.Request{
-		Model:            model,
+		Model:            policyModel,
 		IsSubagent:       isSubagent,
 		OwnerWorkspaceID: owner,
 		ThreadID:         threadID,
@@ -145,7 +153,7 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 	// The poller can be up to its interval out of date, so a workspace can read as healthy
 	// and still refuse. Upstream's answer wins over the stored reading.
 	attempt := 1
-	if resp.StatusCode == http.StatusTooManyRequests && rawBody != nil && threadID != "" {
+	if !isImage && resp.StatusCode == http.StatusTooManyRequests && rawBody != nil && threadID != "" {
 		retryDecision := p.opt.Selector.Decide(r.Context(), policy.Request{
 			Model:            model,
 			IsSubagent:       isSubagent,
@@ -201,6 +209,11 @@ func (p *Proxy) serveGeneration(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if isImage {
+		// Image responses contain JSON/base64, not response SSE frames. Forward bytes
+		// without scanning or interpreting image data as chat usage/events.
+		onFrame = nil
+	}
 	firstToken, total, streamClass := p.stream(r, w, resp.Body, started, onFrame)
 
 	// How a stream ENDED is its own failure class. A turn the user cancelled and a turn
@@ -356,8 +369,15 @@ func modelFromBody(r *http.Request) (string, []byte) {
 	if r.Body == nil || r.ContentLength > maxBufferedBody {
 		return "", nil
 	}
-	raw, err := io.ReadAll(io.LimitReader(r.Body, maxBufferedBody))
-	if err != nil {
+	original := r.Body
+	raw, err := io.ReadAll(io.LimitReader(original, maxBufferedBody+1))
+	if err != nil || len(raw) > maxBufferedBody {
+		// Chunked image edits can exceed the inspection cap. Preserve both the
+		// consumed prefix and unread tail, and keep the original closer attached.
+		r.Body = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(bytes.NewReader(raw), original), original}
 		return "", nil
 	}
 	_ = r.Body.Close()
