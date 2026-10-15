@@ -60,7 +60,7 @@ type Record struct {
 	At       time.Time
 	ThreadID string
 	Model    string
-	// RequestKind is "parent" or "subagent", derived only from Codex's request metadata.
+	// RequestKind is "parent", "subagent", or "image".
 	RequestKind string
 	Decision    policy.Decision
 	Attempt     int
@@ -188,6 +188,13 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch route.Class {
+	case ClassImageGeneration:
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			writeProblem(w, http.StatusMethodNotAllowed, "Image operations require POST.")
+			return
+		}
+		p.serveGeneration(w, r)
 	case ClassGeneration:
 		p.serveGeneration(w, r)
 	case ClassModelCatalog, ClassIdentityScoped:

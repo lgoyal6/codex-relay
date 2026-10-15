@@ -171,8 +171,8 @@ This matters more than the route table below, and it was established by capturin
 request from a real client against two separate mock origins (one as the provider
 `base_url`, one as `chatgpt_base_url`) so the two could be told apart.
 
-**Only `{provider.base_url}/...` traffic reaches codex-relay.** Across 132 proxied requests in
-the live runs, exactly two paths ever arrived:
+**Only `{provider.base_url}/...` traffic reaches codex-relay.** In the original 0.154.0
+capture, across 132 proxied requests, exactly two paths arrived:
 
 ```
   16  /backend-api/codex/models
@@ -180,8 +180,8 @@ the live runs, exactly two paths ever arrived:
    0  anything else  (no fail-closed refusal was triggered in any run)
 ```
 
-Everything else is built from `chatgpt_base_url` and goes **straight to chatgpt.com under the
-client's own credential**, bypassing codex-relay entirely. Observed live:
+The other operations observed in that capture were built from `chatgpt_base_url` and went
+**straight to chatgpt.com under the client's own credential**, bypassing codex-relay entirely:
 
 ```
  /backend-api/wham/settings/user
@@ -192,6 +192,27 @@ client's own credential**, bypassing codex-relay entirely. Observed live:
 
 Source confirms the same split: `backend-client/src/client.rs` builds every `/wham/*` and
 `/api/codex/*` route from its `base_url`, which is `chatgpt_base_url`.
+
+### Standalone image operations (October 2026 client)
+
+The newer image extension uses the active model provider for
+`POST /backend-api/codex/images/generations` and `POST /backend-api/codex/images/edits`.
+Both paths were observed reaching the relay on October 14. The client's
+`ext/image-generation/src/backend.rs` and `codex-api/src/endpoint/images.rs` confirm JSON
+requests and JSON responses containing base64 image data. Edits inline reference images.
+
+These routes authenticate the caller and use the selected identity under the active profile
+and quota policy. The chat model catalog does not establish image-model eligibility, so it
+is not used to reject image requests; upstream determines that eligibility. The image
+extension supplies `originator` and `x-codex-image-turn-id`, not a stable conversation ID.
+The relay does not invent a conversation binding from that turn ID. If a future client
+supplies the usual thread metadata, the normal ownership rules still apply.
+
+Image requests are not retried across accounts by the relay. JSON payloads and image request
+IDs are forwarded unchanged, large chunked bodies retain bytes beyond the inspection cap,
+and responses are not parsed as chat SSE events. Activity records use request kind `image`;
+image token usage is not yet extracted. Only the two explicit routes accept POST; unknown
+image operations continue to fail closed.
 
 ### Consequence: file attachments are NOT pooled
 
@@ -255,6 +276,7 @@ defined rather than accidental.
 | Class | Routes | Credential |
 |---|---|---|
 | Generation | `POST /backend-api/codex/responses` and its `GET` upgrade | selected pooled identity, subject to thread ownership |
+| Image generation | `POST /backend-api/codex/images/generations`, `POST /backend-api/codex/images/edits` | selected pooled identity; no invented thread binding or chat-catalog eligibility check |
 | Model catalog | `GET /backend-api/codex/models` | selected pooled identity; the reported slugs are recorded as that workspace's eligibility |
 | Identity-scoped | `/wham/usage`, `/wham/accounts/check`, `/wham/profiles/me` | that identity's own credential; the answer describes **one** identity |
 | Client-owned | `/wham/settings/user`, `/ps/*`, `/plugins*`, `/analytics-events*` | the client's own credential, passed through untouched |

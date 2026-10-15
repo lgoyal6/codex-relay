@@ -23,6 +23,9 @@ const (
 	// ClassClientOwned belongs to the original client's identity and is passed through
 	// untouched: we do not substitute a pooled credential.
 	ClassClientOwned
+	// ClassImageGeneration is a standalone JSON image operation. It uses admission and
+	// selected credentials, but not the chat model catalog or SSE event inspection.
+	ClassImageGeneration
 )
 
 func (c Class) String() string {
@@ -35,6 +38,8 @@ func (c Class) String() string {
 		return "identity_scoped"
 	case ClassClientOwned:
 		return "client_owned"
+	case ClassImageGeneration:
+		return "image_generation"
 	default:
 		return "unknown"
 	}
@@ -58,6 +63,9 @@ func Classify(path string) Route {
 		p = p[:i]
 	}
 	switch {
+	case p == "/backend-api/codex/images/generations", p == "/backend-api/codex/images/edits",
+		p == "/api/codex/images/generations", p == "/api/codex/images/edits":
+		return Route{ClassImageGeneration, "standalone image generation or edit"}
 	case strings.HasSuffix(p, "/codex/responses"):
 		return Route{ClassGeneration, "model turn"}
 	case strings.HasSuffix(p, "/codex/models"):
