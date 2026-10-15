@@ -67,3 +67,14 @@ func TestParseUsageFallsBackToRelativeReset(t *testing.T) {
 		t.Fatalf("reset = %v, want now+600s", snap.Primary.ResetsAt)
 	}
 }
+
+func TestParseUsageAcceptsObjectReachedType(t *testing.T) {
+	snap, err := ParseUsage([]byte(
+		`{"rate_limit":{"primary_window":{"used_percent":5,"limit_window_seconds":18000}},"rate_limit_reached_type":{"type":"workspace_member_usage_limit_reached"}}`), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.ReachedType != "workspace_member_usage_limit_reached" {
+		t.Fatalf("reached type = %q", snap.ReachedType)
+	}
+}
