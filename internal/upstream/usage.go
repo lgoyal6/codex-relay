@@ -23,7 +23,7 @@ func ParseUsage(body []byte, now time.Time) (Snapshot, error) {
 			Primary      *usageWindow `json:"primary_window"`
 			Secondary    *usageWindow `json:"secondary_window"`
 		} `json:"rate_limit"`
-		ReachedType string `json:"rate_limit_reached_type"`
+		ReachedType json.RawMessage `json:"rate_limit_reached_type"`
 		Credits     *struct {
 			HasCredits bool   `json:"has_credits"`
 			Unlimited  bool   `json:"unlimited"`
@@ -39,7 +39,7 @@ func ParseUsage(body []byte, now time.Time) (Snapshot, error) {
 		LimitName:   "codex",
 		Primary:     b.RateLimit.Primary.window(now),
 		Secondary:   b.RateLimit.Secondary.window(now),
-		ReachedType: b.ReachedType,
+		ReachedType: parseReachedType(b.ReachedType),
 	}
 	if b.Credits != nil {
 		snap.Credits = &Credits{
@@ -52,6 +52,25 @@ func ParseUsage(body []byte, now time.Time) (Snapshot, error) {
 		return Snapshot{}, fmt.Errorf("usage response carried no rate-limit window")
 	}
 	return snap, nil
+}
+
+// parseReachedType accepts the legacy string form and the current object form.
+// The field is also nullable when no limit has been reached.
+func parseReachedType(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var value string
+	if json.Unmarshal(raw, &value) == nil {
+		return value
+	}
+	var object struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(raw, &object) == nil {
+		return object.Type
+	}
+	return ""
 }
 
 type usageWindow struct {
