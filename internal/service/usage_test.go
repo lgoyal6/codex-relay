@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/lgoyal6/codex-relay/internal/policy"
@@ -171,6 +172,47 @@ func TestOneRowPerWindowAcrossLimitFamilies(t *testing.T) {
 	}
 	if pct != 42 {
 		t.Errorf("used_percent = %v, want the newest reading 42", pct)
+	}
+}
+
+func TestConcurrentQuotaFamilyUpdatesKeepOneWindowRow(t *testing.T) {
+	sec := secrets.NewMemory()
+	svc := connectService(t, sec)
+	ctx := context.Background()
+	mustExec(t, svc, `INSERT INTO accounts (id, chatgpt_user_id, email, plan_type, created_at)
+		VALUES ('a','u','a@example.com','prolite','2026-09-12T00:00:00Z')`)
+	mustExec(t, svc, `INSERT INTO workspaces (id, account_id, chatgpt_account_id, display_name, paused, credential_ref, credential_ok, sort_order, created_at, updated_at)
+		VALUES ('ws','a','cg','WS',0,'r',1,0,'2026-09-12T00:00:00Z','2026-09-12T00:00:00Z')`)
+
+	const workers, updates = 24, 8
+	var wg sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		worker := worker
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			family := "codex"
+			if worker%2 == 0 {
+				family = "codex_bengalfox"
+			}
+			for update := 0; update < updates; update++ {
+				pct := float64((worker*updates + update) % 100)
+				svc.observeQuota(ctx, "ws", []upstream.Snapshot{{
+					LimitID: family,
+					Primary: &upstream.Window{Minutes: 300, UsedPercent: pct},
+				}}, "response_headers")
+			}
+		}()
+	}
+	wg.Wait()
+
+	var rows int
+	if err := svc.DB.SQL().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM quota_windows WHERE workspace_id='ws' AND window_minutes=300`).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 {
+		t.Fatalf("concurrent reporters left %d rows for one quota window; family labels are not the window identity", rows)
 	}
 }
 
