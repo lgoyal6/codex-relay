@@ -136,6 +136,29 @@ func TestSubagentHelperFallsBackWhenUnavailable(t *testing.T) {
 	}
 }
 
+func TestSubagentHelperUsesFallbackHelperBeforeProfileOrder(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	st := profileState(now, 80, 80)
+	st.Order = append(st.Order, "spare")
+	st.Workspaces["spare"] = &WorkspaceState{ID: "spare", Name: "Spare", CredentialOK: true, Windows: map[int64]Window{}}
+	st.Workspaces["free"].Paused = true
+	st.ActiveProfile = &RoutingProfile{
+		ID: "helpers", Name: "Hers first", Command: "hers", Mode: ProfilePriority,
+		PriorityWorkspaceIDs: []string{"hers", "mine"}, HandoffBelowPercent: 2,
+		SubagentHelperEnabled: true, SubagentHelperWorkspaceID: "free", SubagentHelperFallbackID: "spare",
+		SubagentHelperModel: "gpt-5.6-luna",
+	}
+	d := Evaluate(st, Request{Model: "gpt-5.6-luna", IsSubagent: true}, now)
+	if d.WorkspaceID != "spare" || d.Primary != ReasonSubagentHelper {
+		t.Fatalf("Luna subagent selected %q/%s: %s", d.WorkspaceID, d.Primary, d.Summary)
+	}
+	st.Workspaces["spare"].Paused = true
+	d = Evaluate(st, Request{Model: "gpt-5.6-luna", IsSubagent: true}, now)
+	if d.WorkspaceID != "hers" {
+		t.Fatalf("with both helpers out, Luna subagent selected %q", d.WorkspaceID)
+	}
+}
+
 func TestProfileValidationRejectsAliasCollisionsAndUnknownWorkspaces(t *testing.T) {
 	known := map[string]bool{"mine": true, "hers": true}
 	p := RoutingProfile{

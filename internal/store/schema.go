@@ -239,4 +239,8 @@ var migrations = []string{
 	// Activity needs to distinguish a parent turn from delegated work without retaining any
 	// prompt or task text. Existing rows are parent turns unless proven otherwise.
 	`ALTER TABLE decisions ADD COLUMN request_kind TEXT NOT NULL DEFAULT 'parent';`,
+
+	// A second helper workspace takes delegated subagents when the first is unavailable,
+	// before they fall back to the profile's main order.
+	`ALTER TABLE routing_profiles ADD COLUMN subagent_helper_fallback_workspace_id TEXT NOT NULL DEFAULT '';`,
 }
