@@ -275,3 +275,42 @@ func TestRetryRecordsTheSuccessfulAttemptUpstreamLatency(t *testing.T) {
 		t.Errorf("successful retry upstream_ms = %d, want 640", got)
 	}
 }
+
+// R7: ownership moves when the retry workspace has actually answered, even when that
+// answer is another error. A retry response is still evidence that ws-b served this turn;
+// only identity or transport failure leaves ownership with ws-a. The relay deliberately
+// performs at most one retry, so a second 429 is surfaced instead of being retried again.
+func TestRetryMovesOwnershipForEveryHTTPRetryResponse(t *testing.T) {
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusNotFound} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			p, sel, rec, r, calls := retrySetup(t, func(w http.ResponseWriter) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"detail":"retry response"}`))
+			})
+			p.ServeHTTP(rec, r)
+
+			if got := calls(); got != 2 {
+				t.Fatalf("upstream saw %d calls, want one refusal and one retry", got)
+			}
+			if rec.Code != status {
+				t.Fatalf("client saw %d, want retry response %d", rec.Code, status)
+			}
+			sel.mu.Lock()
+			defer sel.mu.Unlock()
+			if len(sel.reassigns) != 1 || !strings.HasSuffix(sel.reassigns[0], "->ws-b") {
+				t.Fatalf("ownership was not moved after ws-b answered with %d: %v", status, sel.reassigns)
+			}
+			if len(sel.records) < 2 {
+				t.Fatalf("recorded %d attempts, want refusal and retry response", len(sel.records))
+			}
+			last := sel.records[len(sel.records)-1]
+			if last.Decision.WorkspaceID != "ws-b" {
+				t.Errorf("retry response was attributed to %q, want ws-b", last.Decision.WorkspaceID)
+			}
+			if last.StatusCode != status || last.UpstreamStatus != status {
+				t.Errorf("retry record statuses = (%d, %d), want (%d, %d)", last.StatusCode, last.UpstreamStatus, status, status)
+			}
+		})
+	}
+}
