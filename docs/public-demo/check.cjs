@@ -1,0 +1,20 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+globalThis.crypto ||= require('node:crypto').webcrypto;
+require('./wasm_exec.js');
+(async () => {
+ const go = new Go();
+ const {instance} = await WebAssembly.instantiate(fs.readFileSync(__dirname+'/engine.wasm'),go.importObject);
+ go.run(instance).catch(error => { console.error(error); process.exit(1); });
+ const evaluate = input => JSON.parse(publicDemo(JSON.stringify(input)));
+ const base={remaining:30,reset_hours:120,evidence:'fresh',work_paused:false};
+ assert.equal(evaluate(base).workspace_id,'work');
+ assert.equal(evaluate({...base,remaining:30.01}).workspace_id,'personal');
+ assert.equal(evaluate({...base,reset_hours:95}).workspace_id,'personal');
+ assert.equal(evaluate({...base,work_paused:true}).outcome,'blocked');
+ assert.ok(evaluate({...base,remaining:101}).error);
+ assert.ok(evaluate({...base,evidence:'invented'}).error);
+ assert.equal(evaluate(base).simulated,true);
+ console.log('PASS: exact threshold, reset boundary, paused alternative, bounds, evidence and synthetic flag');
+ process.exit(0);
+})().catch(error=>{console.error(error);process.exit(1);});
