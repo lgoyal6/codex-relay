@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -157,7 +156,7 @@ func New(opt Options) *Proxy {
 					// behind a corporate proxy working with no configuration at all.
 					return http.ProxyFromEnvironment(r)
 				},
-				DialContext:           (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+				DialContext:           upstream.NewDialer().DialContext,
 				TLSHandshakeTimeout:   15 * time.Second,
 				ResponseHeaderTimeout: 120 * time.Second,
 				ExpectContinueTimeout: time.Second,
