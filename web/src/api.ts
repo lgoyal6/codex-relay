@@ -123,6 +123,7 @@ export interface RoutingProfile {
   disabled_workspace_ids: string[];
   subagent_helper_enabled: boolean;
   subagent_helper_workspace_id?: string;
+  subagent_helper_fallback_workspace_id?: string;
   subagent_helper_model?: string;
   created_at?: string;
   updated_at?: string;

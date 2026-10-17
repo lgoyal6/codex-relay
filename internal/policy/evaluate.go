@@ -277,6 +277,12 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 	if p := st.ActiveProfile; p != nil && p.SubagentHelperEnabled && req.IsSubagent &&
 		(req.Model == "" || req.Model == p.SubagentHelperModel) {
 		helperID := p.SubagentHelperWorkspaceID
+		if !eligible[helperID] && eligible[p.SubagentHelperFallbackID] {
+			d.Notes = append(d.Notes, Note{Code: ReasonSubagentHelper, WorkspaceID: helperID,
+				Message: fmt.Sprintf("The configured Luna helper %s is unavailable: %s Its fallback helper takes this subagent.",
+					nameOf(st, helperID), details[helperID])})
+			helperID = p.SubagentHelperFallbackID
+		}
 		if eligible[helperID] {
 			preferOrder = append([]string{helperID}, withoutWorkspace(preferOrder, helperID)...)
 			explicitPreferOrder = append([]string{helperID}, withoutWorkspace(explicitPreferOrder, helperID)...)
