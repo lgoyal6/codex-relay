@@ -25,6 +25,13 @@ const UsagePollInterval = 5 * time.Minute
 // StartUsagePolling refreshes quota for every connected workspace until ctx is done.
 //
 // The endpoint reports totals and does not run a model turn, so polling costs no quota.
+
+// usageClient dials over IPv4 with lookup retries, like the proxy (see upstream.Dialer).
+var usageClient = &http.Client{
+	Timeout:   30 * time.Second,
+	Transport: &http.Transport{DialContext: upstream.NewDialer().DialContext, Proxy: http.ProxyFromEnvironment},
+}
+
 func (s *Service) StartUsagePolling(ctx context.Context) {
 	go func() {
 		// Poll once at startup so a freshly launched service does not serve a dashboard full
@@ -92,7 +99,7 @@ func (s *Service) pollWorkspaceUsage(ctx context.Context, workspaceID string) er
 	}
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	resp, err := usageClient.Do(req)
 	if err != nil {
 		return err
 	}
