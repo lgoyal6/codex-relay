@@ -71,6 +71,7 @@ export interface WorkspaceView {
   id: string;
   name: string;
   account_id: string;
+  plan_type: string;
   paused: boolean;
   credential_ok: boolean;
   credential_note?: string;

@@ -13,6 +13,7 @@ import {
   clockText,
   evidenceBadge,
   pct,
+  planLabel,
   reasonText,
   resetAtText,
 } from "./ui";
@@ -126,7 +127,9 @@ export function Overview({
       ? "A rule prefers it."
       : decision.primary_reason === "owner_bound_conversation"
         ? "It already owns this conversation."
-        : "It is your default workspace and no rule changes that.";
+        : decision.primary_reason === "default_workspace"
+          ? "It is your default workspace and no rule changes that."
+          : decision.summary;
   const subline = blocked
     ? decision.summary
     : [...excluded.map((c) => `${nameOf(c.workspace_id)} is protected by your reserve rule.`), why].join(" ");
@@ -174,6 +177,7 @@ export function Overview({
 
           <ErrorBox error={modelError ?? switchError} />
 
+          <Expando summary="Routing controls">
           <div className="actions mt">
             {state.workspaces.map((workspace) => {
               const preferred = activePreference?.source_workspace_id === workspace.id;
@@ -212,6 +216,8 @@ export function Overview({
             Changing the preferred account applies to new tasks immediately. Existing tasks move
             on their next turn when that account is eligible.
           </p>
+
+          </Expando>
 
           <div style={{ marginTop: 12 }}>
             <Expando summary="Why this workspace?">
@@ -604,8 +610,8 @@ function AccountCard({
     <div className={isNext ? "acct is-next" : "acct"}>
       <div className="acct-head">
         <div style={{ minWidth: 0 }}>
-          <div className="acct-name">{w.name}</div>
-          <div className="acct-plan">{w.account_id}</div>
+          <div className="acct-name">{w.name} <Badge kind="neutral" icon={false}>{planLabel(w.plan_type)}</Badge></div>
+          <details className="acct-plan"><summary>Account details</summary><code>{w.account_id}</code></details>
         </div>
         <div className="row" style={{ gap: 4 }}>
           {isNext && <Badge kind="next">next</Badge>}
@@ -628,6 +634,9 @@ function AccountCard({
       ) : (
         <div className="acct-windows">
           {w.windows.map((win) => {
+            if (win.evidence === "missing") {
+              return <div key={win.minutes}><span className="acct-win-name">{win.label}</span> {evidenceBadge(win.evidence, win.observed_at, now)}</div>;
+            }
             const remaining = Math.max(0, Math.min(100, win.remaining_percent));
             const marker = win.reserve_marker_percent;
             const tone =
@@ -636,7 +645,7 @@ function AccountCard({
               <div key={win.minutes}>
                 <div className="acct-win-top">
                   <span className="acct-win-name">{win.label}</span>
-                  <span className="acct-win-pct">{pct(remaining)}</span>
+                  <span className="acct-win-pct">{pct(remaining)} remaining</span>
                 </div>
                 <Meter percent={remaining} markerPercent={marker} tone={tone} />
                 <div className="acct-win-foot">
@@ -651,6 +660,9 @@ function AccountCard({
             );
           })}
         </div>
+      )}
+      {planLabel(w.plan_type) === "Pro" && !w.windows.some((win) => win.minutes === 300) && w.windows.some((win) => win.evidence === "fresh") && (
+        <p className="note" style={{ marginBottom: 0 }}>No 5-hour limit reported.</p>
       )}
     </div>
   );

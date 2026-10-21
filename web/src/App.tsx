@@ -67,6 +67,7 @@ export function App() {
   const [draft, setDraft] = useState<Rule | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [theme, setThemeState] = useState<Theme>(readTheme);
+  const [embedTheme, setEmbedTheme] = useState<"light" | "dark" | null>(null);
   const [loadingActivity, setLoadingActivity] = useState(true);
 
   const [connecting, setConnecting] = useState(false);
@@ -84,9 +85,30 @@ export function App() {
 
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === "system") root.removeAttribute("data-theme");
-    else root.setAttribute("data-theme", theme);
-  }, [theme]);
+    const choice = embedTheme ?? theme;
+    if (choice === "system") root.removeAttribute("data-theme");
+    else root.setAttribute("data-theme", choice);
+  }, [theme, embedTheme]);
+
+  useEffect(() => {
+    let parentOrigin: string | null = null;
+    const reportSize = () => {
+      if (parentOrigin) window.parent.postMessage({type:"amac:height", height:Math.ceil(document.querySelector(".shell")?.getBoundingClientRect().height ?? document.body.scrollHeight)}, parentOrigin);
+    };
+    const onMessage = (event: MessageEvent) => {
+      if (window.parent === window || event.source !== window.parent || event.data?.type !== "amac:embed") return;
+      if (event.data.theme !== "light" && event.data.theme !== "dark") return;
+      parentOrigin = event.origin;
+      document.documentElement.classList.add("embedded");
+      setEmbedTheme(event.data.theme);
+      requestAnimationFrame(reportSize);
+    };
+    window.addEventListener("message", onMessage);
+    const observer = new ResizeObserver(reportSize);
+    observer.observe(document.body);
+    if (window.parent !== window) window.parent.postMessage({type:"amac:ready"}, "*");
+    return () => {window.removeEventListener("message", onMessage); observer.disconnect(); document.documentElement.classList.remove("embedded");};
+  }, []);
 
   const reload = useCallback(() => {
     api
@@ -265,7 +287,7 @@ export function App() {
       </header>
 
       <main id="main-content" className="page">
-        <h1 className="sr-only">codex-relay {TABS.find((item) => item.id === tab)?.label}</h1>
+        <div className="page-heading"><h1>{tab === "overview" ? "Relay" : TABS.find((item) => item.id === tab)?.label}</h1><p>Account capacity, routing decisions, and usage evidence.</p></div>
         {loadError && (
           <section className="card">
             <div className="card-body">

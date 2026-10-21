@@ -201,8 +201,35 @@ func (s *Service) ObserveQuota(ctx context.Context, workspaceID string, snaps []
 // authoritative: a turn reports what the request actually cost, a poll reports a total.
 func (s *Service) observeQuota(ctx context.Context, workspaceID string, snaps []upstream.Snapshot, source string) {
 	now := s.Clock.Now()
+snapshots:
 	for _, snap := range snaps {
-		for _, w := range []*upstream.Window{snap.Primary, snap.Secondary} {
+		windows := []*upstream.Window{snap.Primary, snap.Secondary}
+		var primary, secondary int64
+		if snap.Primary != nil {
+			primary = snap.Primary.Minutes
+		}
+		if snap.Secondary != nil {
+			secondary = snap.Secondary.Minutes
+		}
+		if primary <= 0 && secondary <= 0 {
+			continue
+		}
+		tx, err := s.DB.SQL().BeginTx(ctx, nil)
+		if err != nil {
+			s.Log.Warn("could not begin quota update", "error", err)
+			continue
+		}
+		// A successful usage poll reports the complete current set. Response headers
+		// can report only one window, so they must not clear other known limits.
+		if source == "usage_endpoint" && snap.LimitID == "codex" {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM quota_windows
+				WHERE workspace_id = ? AND window_minutes NOT IN (?, ?)`, workspaceID, primary, secondary); err != nil {
+				_ = tx.Rollback()
+				s.Log.Warn("could not remove obsolete quota windows", "error", err)
+				continue
+			}
+		}
+		for _, w := range windows {
 			if w == nil || w.Minutes <= 0 {
 				continue
 			}
@@ -217,20 +244,15 @@ func (s *Service) observeQuota(ctx context.Context, workspaceID string, snaps []
 			// (workspace, limit_id, minutes) but the evaluator keys on minutes alone, so two
 			// names for one real limit became two rows that collapsed unpredictably into one
 			// reading. The name is informational; the duration is the identity.
-			tx, err := s.DB.SQL().BeginTx(ctx, nil)
-			if err != nil {
-				s.Log.Warn("could not begin quota update", "error", err)
-				continue
-			}
 			if _, err := tx.ExecContext(ctx, `
 				DELETE FROM quota_windows
 				WHERE workspace_id = ? AND window_minutes = ? AND limit_id <> ?`,
 				workspaceID, w.Minutes, snap.LimitID); err != nil {
 				_ = tx.Rollback()
 				s.Log.Warn("could not clear superseded quota rows", "error", err)
-				continue
+				continue snapshots
 			}
-			_, err = tx.ExecContext(ctx, `
+			_, err := tx.ExecContext(ctx, `
 				INSERT INTO quota_windows (workspace_id, limit_id, window_minutes, used_percent, resets_at, observed_at, source)
 				VALUES (?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(workspace_id, limit_id, window_minutes) DO UPDATE SET
@@ -242,11 +264,11 @@ func (s *Service) observeQuota(ctx context.Context, workspaceID string, snaps []
 			if err != nil {
 				_ = tx.Rollback()
 				s.Log.Warn("could not store quota reading", "error", err)
-				continue
+				continue snapshots
 			}
-			if err := tx.Commit(); err != nil {
-				s.Log.Warn("could not commit quota reading", "error", err)
-			}
+		}
+		if err := tx.Commit(); err != nil {
+			s.Log.Warn("could not commit quota reading", "error", err)
 		}
 	}
 	if err := s.Refresh(ctx); err != nil {

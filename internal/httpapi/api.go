@@ -208,6 +208,7 @@ type WorkspaceView struct {
 	ID             string       `json:"id"`
 	Name           string       `json:"name"`
 	AccountID      string       `json:"account_id"`
+	PlanType       string       `json:"plan_type"`
 	Paused         bool         `json:"paused"`
 	CredentialOK   bool         `json:"credential_ok"`
 	CredentialNote string       `json:"credential_note,omitempty"`
@@ -286,6 +287,17 @@ func (a *API) handleState(w http.ResponseWriter, r *http.Request) {
 		return id
 	}
 
+	plans := map[string]string{}
+	if rows, err := a.Svc.DB.SQL().QueryContext(r.Context(), `SELECT id, COALESCE(plan_type, '') FROM accounts`); err == nil {
+		for rows.Next() {
+			var id, plan string
+			if rows.Scan(&id, &plan) == nil {
+				plans[id] = plan
+			}
+		}
+		rows.Close()
+	}
+
 	for _, id := range st.Order {
 		ws := st.Workspaces[id]
 		if ws == nil {
@@ -293,7 +305,8 @@ func (a *API) handleState(w http.ResponseWriter, r *http.Request) {
 		}
 		v := WorkspaceView{
 			ID: ws.ID, Name: ws.Name, AccountID: ws.AccountID,
-			Paused: ws.Paused, CredentialOK: ws.CredentialOK, CredentialNote: ws.CredentialNote,
+			PlanType: plans[ws.AccountID],
+			Paused:   ws.Paused, CredentialOK: ws.CredentialOK, CredentialNote: ws.CredentialNote,
 			ModelsKnown: len(ws.EligibleModels) > 0,
 			Windows:     []WindowView{},
 		}
@@ -378,16 +391,6 @@ func (a *API) handleState(w http.ResponseWriter, r *http.Request) {
 	resp.Summary = a.buildSummary(r.Context(), now, len(resp.Workspaces), activeRules)
 	resp.Projections = buildProjections(st, now)
 
-	plans := map[string]string{}
-	if rows, err := a.Svc.DB.SQL().QueryContext(r.Context(), `SELECT id, plan_type FROM accounts`); err == nil {
-		for rows.Next() {
-			var id, plan string
-			if rows.Scan(&id, &plan) == nil {
-				plans[id] = plan
-			}
-		}
-		rows.Close()
-	}
 	resp.PoolTotals = buildPoolTotals(st, now, plans)
 
 	writeJSON(w, 200, resp)

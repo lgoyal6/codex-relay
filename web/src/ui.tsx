@@ -15,6 +15,16 @@ import {
 
 export type BadgeKind = "ok" | "warn" | "danger" | "protect" | "neutral" | "info" | "next";
 
+export function planLabel(plan: string) {
+  switch (plan) {
+    case "pro":
+    case "prolite": return "Pro";
+    case "plus": return "Plus";
+    case "free": return "Free";
+    default: return plan || "Plan unknown";
+  }
+}
+
 /**
  * Badge carries state as an icon PLUS a word, never colour alone, so the meaning survives
  * greyscale and colour blindness.
@@ -262,6 +272,9 @@ export function evidenceBadge(evidence: Evidence, observedAt: string, now: Date)
  * "how close am I to the reserve" is readable without arithmetic.
  */
 export function QuotaBar({ w, now }: { w: WindowView; now: Date }) {
+  if (w.evidence === "missing") {
+    return <div className="quota"><span className="quota-label">{w.label}</span> {evidenceBadge(w.evidence, w.observed_at, now)}</div>;
+  }
   const remaining = Math.max(0, Math.min(100, w.remaining_percent));
   const marker = w.reserve_marker_percent;
   let tone = "";
