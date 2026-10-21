@@ -4,7 +4,7 @@
 import { useState } from "react";
 import type { RemovalEffect, State, WorkspaceView } from "./api";
 import { ApiError, api } from "./api";
-import { Badge, ErrorBox, Expando, QuotaBar } from "./ui";
+import { Badge, ErrorBox, Expando, QuotaBar, planLabel } from "./ui";
 import {
   IconKey,
   IconLayers,
@@ -159,7 +159,7 @@ export function Workspaces({
               ) : (
                 <>
                   <p style={{ margin: 0, fontSize: 14.5, fontWeight: 600, letterSpacing: "-0.015em" }}>
-                    {w.name}
+                    {w.name} <Badge kind="neutral" icon={false}>{planLabel(w.plan_type)}</Badge>
                   </p>
                   <p className="cell-sub mono" style={{ margin: 0 }}>
                     workspace {w.id} · account {w.account_id}
