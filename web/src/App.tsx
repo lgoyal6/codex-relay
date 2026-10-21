@@ -100,6 +100,12 @@ export function App() {
       if (event.data.theme !== "light" && event.data.theme !== "dark") return;
       parentOrigin = event.origin;
       document.documentElement.classList.add("embedded");
+      if (typeof event.data.stickyTop === "number" && Number.isFinite(event.data.stickyTop)) {
+        const shell = document.querySelector(".shell");
+        const bar = document.querySelector(".topbar");
+        const limit = Math.max(0, (shell?.clientHeight ?? 0) - (bar?.clientHeight ?? 0));
+        document.documentElement.style.setProperty("--embed-sticky-top", Math.min(limit, Math.max(0, event.data.stickyTop)) + "px");
+      }
       setEmbedTheme(event.data.theme);
       requestAnimationFrame(reportSize);
     };
