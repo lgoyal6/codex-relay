@@ -892,7 +892,7 @@ main.page { max-width:1280px; padding:30px 28px 64px; }
 .embedded .shell { min-height:0; }
 .embedded main.page { padding:20px 0 40px; }
 .embedded .page-heading,.embedded .topbar .brand,.embedded .topbar .conn { display:none; }
-.embedded .topbar { position:static; border:0; background:transparent; }
+.embedded .topbar { position:sticky; top:0; transform:translateY(var(--embed-sticky-top, 0px)); border:0; background:var(--bg); }
 .embedded .topbar-inner { padding:0 0 20px; min-height:0; }
 .embedded .tabs { margin:0; }
 @media(max-width:760px) {
