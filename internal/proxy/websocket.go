@@ -83,6 +83,15 @@ func (p *Proxy) serveWebSocket(w http.ResponseWriter, r *http.Request, route Rou
 		})
 	}
 
+	if d.NeedsModel {
+		// The upgrade carries no model; it arrives in the first frame. A subagent the helper
+		// might take has to be routed on its model, so ask Codex for HTTP, where the model is
+		// in the body. Codex treats 426 on this handshake as "fall back to HTTP" for that
+		// client only, so parent turns keep the WebSocket.
+		record(http.StatusUpgradeRequired, "needs_model")
+		writeProblem(w, http.StatusUpgradeRequired, "This subagent turn is routed by model; use HTTP.")
+		return
+	}
 	if d.Outcome != policy.OutcomeSelected {
 		// Refuse the upgrade with a real HTTP status so the client can fall back or surface
 		// the reason, rather than seeing an opaque dropped connection.
@@ -291,7 +300,7 @@ func wsPhaseFor(class string) string {
 	switch class {
 	case "":
 		return ""
-	case "blocked_by_policy", "credential_unavailable", "ownership_conflict":
+	case "blocked_by_policy", "credential_unavailable", "ownership_conflict", "needs_model":
 		return "admission"
 	case "upstream_upgrade_refused":
 		return "upstream_connect"

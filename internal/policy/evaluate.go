@@ -78,6 +78,10 @@ type Decision struct {
 	// UnknownEvidence is true when a protection-sensitive input could not be established.
 	// An unknown protection is never treated as false.
 	UnknownEvidence bool `json:"unknown_evidence"`
+	// NeedsModel is true when this is a delegated subagent, a helper is configured, and the
+	// model is not known yet. The helper only takes confirmed helper-model turns, so a
+	// transport that cannot see the model should hand the turn to one that can.
+	NeedsModel bool `json:"needs_model,omitempty"`
 }
 
 // Request describes what is being admitted.
@@ -274,8 +278,12 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 	// an actual Codex subagent using the configured helper model. If the helper is paused,
 	// out of quota, unsupported, protected, or otherwise unavailable, the ordinary profile
 	// order remains intact and becomes the fallback.
+	if p := st.ActiveProfile; p != nil && p.SubagentHelperEnabled && req.IsSubagent && req.Model == "" {
+		// Guessing here sent non-Luna subagents to free helper accounts that cannot run them.
+		d.NeedsModel = true
+	}
 	if p := st.ActiveProfile; p != nil && p.SubagentHelperEnabled && req.IsSubagent &&
-		(req.Model == "" || req.Model == p.SubagentHelperModel) {
+		req.Model == p.SubagentHelperModel {
 		helperID := p.SubagentHelperWorkspaceID
 		if !eligible[helperID] && eligible[p.SubagentHelperFallbackID] {
 			d.Notes = append(d.Notes, Note{Code: ReasonSubagentHelper, WorkspaceID: helperID,
