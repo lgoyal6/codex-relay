@@ -203,6 +203,14 @@ func (s *Service) observeQuota(ctx context.Context, workspaceID string, snaps []
 	now := s.Clock.Now()
 snapshots:
 	for _, snap := range snaps {
+		if snap.Credits != nil {
+			has := snap.Credits.HasCredits || snap.Credits.Unlimited
+			if _, err := s.DB.SQL().ExecContext(ctx,
+				`UPDATE workspaces SET has_credits = ?, credits_balance = ? WHERE id = ?`,
+				boolInt(has), snap.Credits.Balance, workspaceID); err != nil {
+				s.Log.Warn("could not store credits reading", "error", err)
+			}
+		}
 		windows := []*upstream.Window{snap.Primary, snap.Secondary}
 		var primary, secondary int64
 		if snap.Primary != nil {
@@ -441,7 +449,7 @@ func (s *Service) Refresh(ctx context.Context) error {
 
 	rows, err := s.DB.SQL().QueryContext(ctx, `
 		SELECT w.id, w.display_name, w.account_id, w.paused, w.credential_ok, w.credential_note,
-		       w.handoff_floor_percent
+		       w.handoff_floor_percent, w.has_credits, w.credits_balance
 		FROM workspaces w ORDER BY w.sort_order, w.id`)
 	if err != nil {
 		return err
@@ -450,13 +458,16 @@ func (s *Service) Refresh(ctx context.Context) error {
 		var id, name, account, note string
 		var paused, credOK int
 		var floor sql.NullFloat64
-		if err := rows.Scan(&id, &name, &account, &paused, &credOK, &note, &floor); err != nil {
+		var hasCredits int
+		var balance string
+		if err := rows.Scan(&id, &name, &account, &paused, &credOK, &note, &floor, &hasCredits, &balance); err != nil {
 			rows.Close()
 			return err
 		}
 		st.Workspaces[id] = &policy.WorkspaceState{
 			ID: id, Name: name, AccountID: account,
 			Paused: paused == 1, CredentialOK: credOK == 1, CredentialNote: note,
+			HasCredits: hasCredits == 1, CreditsBalance: balance,
 			Windows: map[int64]policy.Window{},
 		}
 		if floor.Valid {
@@ -568,3 +579,10 @@ func nullIfUnmeasured(i int64) any {
 }
 
 var _ proxy.Selector = (*Service)(nil)
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}

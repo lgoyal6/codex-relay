@@ -75,6 +75,8 @@ export interface WorkspaceView {
   paused: boolean;
   /** This workspace's own handoff floor; absent means the active profile's applies. */
   handoff_floor_percent?: number;
+  has_credits?: boolean;
+  credits_balance?: string;
   credential_ok: boolean;
   credential_note?: string;
   protected: boolean;

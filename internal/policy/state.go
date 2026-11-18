@@ -56,6 +56,11 @@ type WorkspaceState struct {
 	// only. 0 lets it serve until it is empty. nil means use the profile floor.
 	HandoffFloorPercent *float64 `json:"handoff_floor_percent,omitempty"`
 
+	// HasCredits is true when the account has purchased credits (or unlimited credits),
+	// which upstream spends once the plan windows are used up, so it is not out of quota.
+	HasCredits     bool   `json:"has_credits,omitempty"`
+	CreditsBalance string `json:"credits_balance,omitempty"`
+
 	// Windows is keyed by window_minutes.
 	Windows map[int64]Window `json:"windows"`
 
