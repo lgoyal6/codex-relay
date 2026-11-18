@@ -243,4 +243,7 @@ var migrations = []string{
 	// A second helper workspace takes delegated subagents when the first is unavailable,
 	// before they fall back to the profile's main order.
 	`ALTER TABLE routing_profiles ADD COLUMN subagent_helper_fallback_workspace_id TEXT NOT NULL DEFAULT '';`,
+
+	// A workspace may override the profile's handoff floor. NULL means use the profile's.
+	`ALTER TABLE workspaces ADD COLUMN handoff_floor_percent REAL;`,
 }

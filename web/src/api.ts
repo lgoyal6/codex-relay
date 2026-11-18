@@ -73,6 +73,8 @@ export interface WorkspaceView {
   account_id: string;
   plan_type: string;
   paused: boolean;
+  /** This workspace's own handoff floor; absent means the active profile's applies. */
+  handoff_floor_percent?: number;
   credential_ok: boolean;
   credential_note?: string;
   protected: boolean;
@@ -506,6 +508,11 @@ export const api = {
     call<{ paused: boolean }>(`/api/workspaces/${encodeURIComponent(id)}/pause`, {
       method: "POST",
       body: JSON.stringify({ paused }),
+    }),
+  setFloor: (id: string, percent: number | null) =>
+    call<{ percent: number | null }>(`/api/workspaces/${encodeURIComponent(id)}/floor`, {
+      method: "POST",
+      body: JSON.stringify({ percent }),
     }),
   rename: (id: string, name: string) =>
     call<{ renamed: boolean }>(`/api/workspaces/${encodeURIComponent(id)}/rename`, {

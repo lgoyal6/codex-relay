@@ -374,6 +374,29 @@ func (c *Connector) SetPaused(workspaceID string, paused bool) error {
 	return c.Svc.Refresh(ctx)
 }
 
+// SetHandoffFloor sets this workspace's own handoff floor. nil clears it back to the
+// profile's floor.
+func (c *Connector) SetHandoffFloor(workspaceID string, percent *float64) error {
+	if percent != nil && (*percent < 0 || *percent > 100) {
+		return fmt.Errorf("handoff floor must be between 0 and 100 percent")
+	}
+	ctx := context.Background()
+	var v any
+	if percent != nil {
+		v = *percent
+	}
+	res, err := c.Svc.DB.SQL().ExecContext(ctx,
+		`UPDATE workspaces SET handoff_floor_percent = ?, updated_at = ? WHERE id = ?`,
+		v, c.Svc.Clock.Now().Format(time.RFC3339Nano), workspaceID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("unknown workspace %q", workspaceID)
+	}
+	return c.Svc.Refresh(ctx)
+}
+
 func (c *Connector) Rename(workspaceID, name string) error {
 	ctx := context.Background()
 	if _, err := c.Svc.DB.SQL().ExecContext(ctx,

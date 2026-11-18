@@ -47,6 +47,9 @@ export function Workspaces({
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
   const [removing, setRemoving] = useState<RemovalEffect | null>(null);
+  const [floorDrafts, setFloorDrafts] = useState<Record<string, string>>({});
+  const profileFloor =
+    state.profiles.find((p) => p.id === state.active_profile_id)?.handoff_below_percent ?? 2;
 
   const run = async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key);
@@ -198,6 +201,49 @@ export function Workspaces({
             </div>
           )}
 
+          <form
+            className="inline-fields"
+            style={{ marginBottom: 12 }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              const raw = (floorDrafts[w.id] ?? "").trim();
+              void run(`floor-${w.id}`, async () => {
+                await api.setFloor(w.id, raw === "" ? null : Number(raw));
+                setFloorDrafts((d) => {
+                  const { [w.id]: _, ...rest } = d;
+                  return rest;
+                });
+              });
+            }}
+          >
+            <div className="field">
+              <label htmlFor={`floor-${w.id}`}>Stop at % left</label>
+              <input
+                id={`floor-${w.id}`}
+                type="number"
+                min={0}
+                max={100}
+                step={0.5}
+                placeholder={`${profileFloor} (profile)`}
+                value={floorDrafts[w.id] ?? (w.handoff_floor_percent ?? "").toString()}
+                onChange={(e) => setFloorDrafts((d) => ({ ...d, [w.id]: e.target.value }))}
+              />
+            </div>
+            <button className="btn sm primary" type="submit" disabled={busy === `floor-${w.id}`}>
+              Save
+            </button>
+            {w.handoff_floor_percent !== undefined && (
+              <button
+                className="btn sm"
+                type="button"
+                disabled={busy === `floor-${w.id}`}
+                onClick={() => run(`floor-${w.id}`, () => api.setFloor(w.id, null))}
+              >
+                Use profile floor
+              </button>
+            )}
+          </form>
+
           <div className="actions">
             <button className="btn sm" onClick={() => startRename(w)} disabled={renaming === w.id}>
               <IconPencil className="ico-sm" />
@@ -248,6 +294,11 @@ export function Workspaces({
           <div style={{ marginTop: 10 }}>
             <Expando summary="What these do">
               <ul style={{ margin: 0, paddingLeft: 18 }} className="note">
+                <li>
+                  <strong>Stop at % left</strong> is when this workspace stops taking new turns and
+                  hands its conversations off. Blank uses the active profile's floor; 0 lets it run
+                  until it is empty.
+                </li>
                 <li>
                   <strong>Pause</strong> stops this workspace taking new turns. Its stored sign-in is
                   kept, and bound conversations hand off to an eligible alternative when one is

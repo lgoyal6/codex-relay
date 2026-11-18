@@ -28,6 +28,7 @@ type Connector interface {
 	CompleteConnect(flowID string) (workspaceIDs []string, err error)
 	CancelConnect(flowID string)
 	SetPaused(workspaceID string, paused bool) error
+	SetHandoffFloor(workspaceID string, percent *float64) error
 	Rename(workspaceID, name string) error
 	Remove(workspaceID string) (service.RemovalEffect, error)
 	RefreshWorkspaces() error
@@ -55,6 +56,7 @@ func (a *API) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/workspaces/connect/complete", a.handleConnectComplete)
 	mux.HandleFunc("POST /api/workspaces/connect/cancel", a.handleConnectCancel)
 	mux.HandleFunc("POST /api/workspaces/{id}/pause", a.handlePause)
+	mux.HandleFunc("POST /api/workspaces/{id}/floor", a.handleFloor)
 	mux.HandleFunc("POST /api/workspaces/{id}/rename", a.handleRename)
 	mux.HandleFunc("GET /api/workspaces/{id}/removal-effect", a.handleRemovalEffect)
 	mux.HandleFunc("DELETE /api/workspaces/{id}", a.handleRemove)
@@ -205,17 +207,19 @@ type WindowView struct {
 }
 
 type WorkspaceView struct {
-	ID             string       `json:"id"`
-	Name           string       `json:"name"`
-	AccountID      string       `json:"account_id"`
-	PlanType       string       `json:"plan_type"`
-	Paused         bool         `json:"paused"`
-	CredentialOK   bool         `json:"credential_ok"`
-	CredentialNote string       `json:"credential_note,omitempty"`
-	Protected      bool         `json:"protected"`
-	ProtectedBy    string       `json:"protected_by,omitempty"`
-	Windows        []WindowView `json:"windows"`
-	ModelsKnown    bool         `json:"models_known"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	AccountID string `json:"account_id"`
+	PlanType  string `json:"plan_type"`
+	Paused    bool   `json:"paused"`
+	// HandoffFloorPercent is this workspace's own floor; absent means the profile's applies.
+	HandoffFloorPercent *float64     `json:"handoff_floor_percent,omitempty"`
+	CredentialOK        bool         `json:"credential_ok"`
+	CredentialNote      string       `json:"credential_note,omitempty"`
+	Protected           bool         `json:"protected"`
+	ProtectedBy         string       `json:"protected_by,omitempty"`
+	Windows             []WindowView `json:"windows"`
+	ModelsKnown         bool         `json:"models_known"`
 }
 
 type RuleView struct {
@@ -307,8 +311,9 @@ func (a *API) handleState(w http.ResponseWriter, r *http.Request) {
 			ID: ws.ID, Name: ws.Name, AccountID: ws.AccountID,
 			PlanType: plans[ws.AccountID],
 			Paused:   ws.Paused, CredentialOK: ws.CredentialOK, CredentialNote: ws.CredentialNote,
-			ModelsKnown: len(ws.EligibleModels) > 0,
-			Windows:     []WindowView{},
+			HandoffFloorPercent: ws.HandoffFloorPercent,
+			ModelsKnown:         len(ws.EligibleModels) > 0,
+			Windows:             []WindowView{},
 		}
 		if rule, ok := protectedBy[id]; ok {
 			v.Protected = true

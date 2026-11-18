@@ -321,7 +321,7 @@ func Evaluate(st *State, req Request, now time.Time) Decision {
 		// would fail on it. Waiting for the hard refusal costs the user a failed turn first.
 		nearlyOut := false
 		if owner != nil && eligible[req.OwnerWorkspaceID] && st.HandoffBelowPercent > 0 {
-			if rem, known := lowestRemaining(st, owner, now); known && rem <= st.HandoffBelowPercent {
+			if exhausted(st, owner, now) {
 				// Only worth moving if somewhere better exists; otherwise stay and spend what is left.
 				if alt := withoutWorkspace(rank(st, ids, eligible, preferOrder), req.OwnerWorkspaceID); len(alt) > 0 {
 					nearlyOut = true
@@ -607,5 +607,14 @@ func exhausted(st *State, ws *WorkspaceState, now time.Time) bool {
 		return false
 	}
 	rem, known := lowestRemaining(st, ws, now)
-	return known && rem <= st.HandoffBelowPercent
+	return known && rem <= floorFor(st, ws)
+}
+
+// floorFor is the handoff floor that applies to one workspace: its own override when set,
+// otherwise the profile's.
+func floorFor(st *State, ws *WorkspaceState) float64 {
+	if ws.HandoffFloorPercent != nil {
+		return *ws.HandoffFloorPercent
+	}
+	return st.HandoffBelowPercent
 }
