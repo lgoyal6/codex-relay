@@ -52,6 +52,10 @@ type WorkspaceState struct {
 	CredentialOK   bool   `json:"credential_ok"`
 	CredentialNote string `json:"credential_note,omitempty"`
 
+	// HandoffFloorPercent, when set, replaces the profile's handoff floor for this workspace
+	// only. 0 lets it serve until it is empty. nil means use the profile floor.
+	HandoffFloorPercent *float64 `json:"handoff_floor_percent,omitempty"`
+
 	// Windows is keyed by window_minutes.
 	Windows map[int64]Window `json:"windows"`
 

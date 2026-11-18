@@ -328,6 +328,22 @@ func (a *API) handlePause(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"paused": body.Paused})
 }
 
+// handleFloor sets or clears (null) a workspace's own handoff floor.
+func (a *API) handleFloor(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Percent *float64 `json:"percent"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	if err := a.Connector.SetHandoffFloor(r.PathValue("id"), body.Percent); err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"percent": body.Percent})
+}
+
 func (a *API) handleRename(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name string `json:"name"`

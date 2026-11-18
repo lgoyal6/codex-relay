@@ -188,3 +188,43 @@ func TestUnknownQuotaIsNotTreatedAsExhausted(t *testing.T) {
 		t.Fatalf("an unobserved workspace was excluded as if it were empty (got %q)", d.WorkspaceID)
 	}
 }
+
+// A workspace with its own floor of 0 keeps serving below the profile floor, down to empty.
+func TestWorkspaceFloorOverrideZeroKeepsServing(t *testing.T) {
+	st := handoffState(98, 2) // Personal at 2%, profile floor 2%
+	zero := 0.0
+	st.Workspaces["personal"].HandoffFloorPercent = &zero
+
+	d := Evaluate(st, Request{OwnerWorkspaceID: "personal"}, base)
+	if d.WorkspaceID != "personal" || d.Primary != ReasonOwnerBound {
+		t.Fatalf("got %s/%v, want personal to keep serving at 2%% with floor 0", d.WorkspaceID, d.Primary)
+	}
+	d = Evaluate(st, Request{}, base)
+	if d.WorkspaceID != "personal" {
+		t.Fatalf("new conversation went to %q, want personal", d.WorkspaceID)
+	}
+}
+
+// Floor 0 still steps aside once the workspace is truly empty.
+func TestWorkspaceFloorOverrideZeroHandsOffWhenEmpty(t *testing.T) {
+	st := handoffState(100, 2)
+	zero := 0.0
+	st.Workspaces["personal"].HandoffFloorPercent = &zero
+
+	d := Evaluate(st, Request{OwnerWorkspaceID: "personal"}, base)
+	if d.WorkspaceID != "work" || d.Primary != ReasonHandoff {
+		t.Fatalf("got %s/%v, want handoff to work at 0%%", d.WorkspaceID, d.Primary)
+	}
+}
+
+// The override is per workspace: one without it still uses the profile floor.
+func TestWorkspaceFloorOverrideDoesNotLeak(t *testing.T) {
+	st := handoffState(99, 2) // Personal at 1%, no override
+	zero := 0.0
+	st.Workspaces["work"].HandoffFloorPercent = &zero
+
+	d := Evaluate(st, Request{OwnerWorkspaceID: "personal"}, base)
+	if d.WorkspaceID != "work" || d.Primary != ReasonHandoff {
+		t.Fatalf("got %s/%v, want personal to hand off under the profile floor", d.WorkspaceID, d.Primary)
+	}
+}

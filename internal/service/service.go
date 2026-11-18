@@ -440,7 +440,8 @@ func (s *Service) Refresh(ctx context.Context) error {
 	}
 
 	rows, err := s.DB.SQL().QueryContext(ctx, `
-		SELECT w.id, w.display_name, w.account_id, w.paused, w.credential_ok, w.credential_note
+		SELECT w.id, w.display_name, w.account_id, w.paused, w.credential_ok, w.credential_note,
+		       w.handoff_floor_percent
 		FROM workspaces w ORDER BY w.sort_order, w.id`)
 	if err != nil {
 		return err
@@ -448,7 +449,8 @@ func (s *Service) Refresh(ctx context.Context) error {
 	for rows.Next() {
 		var id, name, account, note string
 		var paused, credOK int
-		if err := rows.Scan(&id, &name, &account, &paused, &credOK, &note); err != nil {
+		var floor sql.NullFloat64
+		if err := rows.Scan(&id, &name, &account, &paused, &credOK, &note, &floor); err != nil {
 			rows.Close()
 			return err
 		}
@@ -456,6 +458,10 @@ func (s *Service) Refresh(ctx context.Context) error {
 			ID: id, Name: name, AccountID: account,
 			Paused: paused == 1, CredentialOK: credOK == 1, CredentialNote: note,
 			Windows: map[int64]policy.Window{},
+		}
+		if floor.Valid {
+			f := floor.Float64
+			st.Workspaces[id].HandoffFloorPercent = &f
 		}
 		st.Order = append(st.Order, id)
 	}

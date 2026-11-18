@@ -26,6 +26,7 @@ func (s stubConnector) BeginConnect() (string, string, error)    { return "https
 func (s stubConnector) CompleteConnect(string) ([]string, error) { return []string{"ws"}, s.err }
 func (s stubConnector) CancelConnect(string)                     {}
 func (s stubConnector) SetPaused(string, bool) error             { return s.err }
+func (s stubConnector) SetHandoffFloor(string, *float64) error   { return s.err }
 func (s stubConnector) Rename(string, string) error              { return s.err }
 func (s stubConnector) RefreshWorkspaces() error                 { return s.err }
 func (s stubConnector) Remove(string) (service.RemovalEffect, error) {
