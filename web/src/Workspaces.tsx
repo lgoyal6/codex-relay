@@ -180,6 +180,11 @@ export function Workspaces({
               {w.paused ? <Badge kind="warn">paused</Badge> : <Badge kind="ok">admitting</Badge>}
               {!w.credential_ok && <Badge kind="danger">needs sign-in</Badge>}
               {w.protected && <Badge kind="protect">protected now</Badge>}
+              {w.has_credits && (
+                <Badge kind="ok" title="Purchased credits keep this workspace serving after its plan windows run out.">
+                  {w.credits_balance ? `${w.credits_balance} credits` : "has credits"}
+                </Badge>
+              )}
               {w.models_known ? (
                 <Badge kind="neutral">models known</Badge>
               ) : (

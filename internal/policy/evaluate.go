@@ -611,7 +611,7 @@ func lowestRemaining(st *State, ws *WorkspaceState, now time.Time) (float64, boo
 // the point new conversations stop being sent to it. Two different numbers here would mean a
 // workspace could be too empty to start on but not empty enough to leave.
 func exhausted(st *State, ws *WorkspaceState, now time.Time) bool {
-	if st.HandoffBelowPercent <= 0 {
+	if st.HandoffBelowPercent <= 0 || ws.HasCredits {
 		return false
 	}
 	rem, known := lowestRemaining(st, ws, now)

@@ -214,6 +214,8 @@ type WorkspaceView struct {
 	Paused    bool   `json:"paused"`
 	// HandoffFloorPercent is this workspace's own floor; absent means the profile's applies.
 	HandoffFloorPercent *float64     `json:"handoff_floor_percent,omitempty"`
+	HasCredits          bool         `json:"has_credits,omitempty"`
+	CreditsBalance      string       `json:"credits_balance,omitempty"`
 	CredentialOK        bool         `json:"credential_ok"`
 	CredentialNote      string       `json:"credential_note,omitempty"`
 	Protected           bool         `json:"protected"`
@@ -312,6 +314,8 @@ func (a *API) handleState(w http.ResponseWriter, r *http.Request) {
 			PlanType: plans[ws.AccountID],
 			Paused:   ws.Paused, CredentialOK: ws.CredentialOK, CredentialNote: ws.CredentialNote,
 			HandoffFloorPercent: ws.HandoffFloorPercent,
+			HasCredits:          ws.HasCredits,
+			CreditsBalance:      ws.CreditsBalance,
 			ModelsKnown:         len(ws.EligibleModels) > 0,
 			Windows:             []WindowView{},
 		}

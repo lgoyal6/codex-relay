@@ -246,4 +246,8 @@ var migrations = []string{
 
 	// A workspace may override the profile's handoff floor. NULL means use the profile's.
 	`ALTER TABLE workspaces ADD COLUMN handoff_floor_percent REAL;`,
+
+	// Purchased credits keep a workspace serving after its plan windows are used up.
+	`ALTER TABLE workspaces ADD COLUMN has_credits INTEGER NOT NULL DEFAULT 0;`,
+	`ALTER TABLE workspaces ADD COLUMN credits_balance TEXT NOT NULL DEFAULT '';`,
 }
