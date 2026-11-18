@@ -175,3 +175,28 @@ func TestProfileValidationRejectsAliasCollisionsAndUnknownWorkspaces(t *testing.
 		t.Fatal("unknown workspace was accepted")
 	}
 }
+
+// A subagent whose model is not known yet (a websocket upgrade) must not be guessed to be
+// Luna: it keeps the normal order and the decision says the model is needed.
+func TestSubagentHelperRequiresAConfirmedModel(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	st := profileState(now, 80, 80)
+	st.ActiveProfile = &RoutingProfile{
+		ID: "helpers", Name: "Hers first", Command: "hers", Mode: ProfilePriority,
+		PriorityWorkspaceIDs: []string{"hers", "mine", "free"}, HandoffBelowPercent: 2,
+		SubagentHelperEnabled: true, SubagentHelperWorkspaceID: "free", SubagentHelperModel: "gpt-5.6-luna",
+	}
+	d := Evaluate(st, Request{IsSubagent: true}, now)
+	if d.WorkspaceID == "free" {
+		t.Fatalf("unknown-model subagent was sent to the helper")
+	}
+	if !d.NeedsModel {
+		t.Fatalf("decision did not flag that the model is needed")
+	}
+	if Evaluate(st, Request{Model: "gpt-5.6-luna", IsSubagent: true}, now).NeedsModel {
+		t.Fatalf("known model still flagged NeedsModel")
+	}
+	if Evaluate(st, Request{}, now).NeedsModel {
+		t.Fatalf("parent turn flagged NeedsModel")
+	}
+}

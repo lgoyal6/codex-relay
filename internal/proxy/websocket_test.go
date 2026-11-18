@@ -378,3 +378,37 @@ func TestWebSocketRecordsFirstTokenLatency(t *testing.T) {
 		t.Fatalf("first token measured at %d ms, but the upstream waited 40 ms before its first frame", got)
 	}
 }
+
+// A subagent the helper might take cannot be routed on a WebSocket upgrade, which carries no
+// model. 426 is the status Codex treats as "fall back to HTTP", where the model is visible.
+func TestWebSocketAsksForHTTPWhenTheModelIsNeeded(t *testing.T) {
+	dialled := false
+	back := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { dialled = true }))
+	defer back.Close()
+
+	d := selected("free")
+	d.NeedsModel = true
+	sel := &fakeSelector{decision: d}
+	front := httptest.NewServer(newProxy(t, sel, back.URL))
+	defer front.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	hdr := http.Header{}
+	hdr.Set("thread-id", "thread-sub")
+	hdr.Set("x-openai-subagent", "thread_spawn")
+	_, resp, err := websocket.Dial(ctx, toWebSocketURL(front.URL)+"/backend-api/codex/responses",
+		&websocket.DialOptions{HTTPHeader: hdr})
+	if err == nil {
+		t.Fatal("the upgrade must be refused when the model is needed")
+	}
+	if resp == nil || resp.StatusCode != http.StatusUpgradeRequired {
+		t.Fatalf("expected 426 so Codex falls back to HTTP, got %v", resp)
+	}
+	if dialled || len(sel.claims) != 0 {
+		t.Fatal("nothing may reach upstream or bind the conversation")
+	}
+	if len(sel.records) != 1 || sel.records[0].ErrorClass != "needs_model" {
+		t.Fatalf("expected one needs_model record, got %+v", sel.records)
+	}
+}
